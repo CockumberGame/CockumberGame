@@ -1,40 +1,162 @@
 <!DOCTYPE html>
 <html lang="ru">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script>
-  const tg = window.Telegram.WebApp;
-  tg.ready();
-  tg.expand();
-</script>
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ogurchik Rush</title>
-    <link rel="stylesheet" href="styles.css">
-
-    <!-- Пиксельный шрифт -->
-    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>OGURCHIK RUSH</title>
+<link rel="stylesheet" href="styles.css" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
-
 <body>
 
-    <!-- Главное меню -->
-    <div id="menu">
-        <h1 class="title">OGURCHIK RUSH</h1>
-        <button id="startBtn">СТАРТ</button>
+<div id="app">
+
+  <!-- МЕНЮ -->
+  <div id="menu" class="screen active">
+    <h1>OGURCHIK<br>RUSH</h1>
+    <button id="startBtn">START</button>
+  </div>
+
+  <!-- ИГРА -->
+  <div id="game" class="screen">
+    <div id="hud">
+      <div id="timer">60</div>
+      <div id="progress">
+        <div id="progressFill"></div>
+      </div>
     </div>
 
-    <!-- Канвас игры -->
-    <canvas id="game"></canvas>
-
-    <!-- Экран результата -->
-    <div id="resultScreen" class="hidden">
-        <h2 id="resultTitle">Уровень пройден!</h2>
-        <button id="nextLevelBtn">Продолжить</button>
-        <button id="restartBtn">Начать заново</button>
+    <div id="playfield">
+      <img id="cucumber" src="assets/cucumber1.jpg" />
+      <div id="zone"></div>
     </div>
+  </div>
 
-    <script src="game.js"></script>
+  <!-- РЕЗУЛЬТАТ -->
+  <div id="result" class="screen">
+    <h2 id="resultText">Ты победил!</h2>
+    <button id="retryBtn">Сыграть снова</button>
+  </div>
+
+</div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+const menu = document.getElementById('menu');
+const game = document.getElementById('game');
+const result = document.getElementById('result');
+const startBtn = document.getElementById('startBtn');
+const retryBtn = document.getElementById('retryBtn');
+const timerEl = document.getElementById('timer');
+const progressFill = document.getElementById('progressFill');
+const playfield = document.getElementById('playfield');
+const zone = document.getElementById('zone');
+const cucumber = document.getElementById('cucumber');
+
+let levelTime = 60; // секунд
+let timer;
+let progress = 0;
+let currentZone = {};
+let zones = [];
+let zoneIndex = 0;
+
+startBtn.addEventListener('click', startGame);
+retryBtn.addEventListener('click', resetGame);
+
+function startGame() {
+  menu.classList.remove('active');
+  game.classList.add('active');
+  resetLevel();
+}
+
+function resetGame() {
+  result.classList.remove('active');
+  menu.classList.add('active');
+  progress = 0;
+  updateProgress();
+}
+
+function resetLevel() {
+  progress = 0;
+  updateProgress();
+  zoneIndex = 0;
+  generateZones();
+  startTimer();
+  spawnZone();
+}
+
+function startTimer() {
+  let timeLeft = levelTime;
+  timerEl.textContent = timeLeft;
+  timer = setInterval(() => {
+    timeLeft--;
+    timerEl.textContent = timeLeft;
+    if (timeLeft <= 0) {
+      clearInterval(timer);
+      endLevel();
+    }
+  }, 1000);
+}
+
+function generateZones() {
+  // зоны: верхняя, средняя, нижняя
+  zones = [
+    {x: 50, y: 20, type: 'circle'}, 
+    {x: 50, y: 50, type: 'vertical'}, 
+    {x: 50, y: 80, type: 'tap'}
+  ];
+  // перемешаем для разнообразия
+  zones.sort(() => Math.random() - 0.5);
+}
+
+function spawnZone() {
+  if(zoneIndex >= zones.length) return;
+  currentZone = zones[zoneIndex];
+  zone.style.left = currentZone.x + '%';
+  zone.style.top = currentZone.y + '%';
+  zone.style.display = 'block';
+}
+
+function updateProgress() {
+  progressFill.style.width = progress + '%';
+}
+
+function endLevel() {
+  game.classList.remove('active');
+  result.classList.add('active');
+  document.getElementById('resultText').textContent =
+    progress >= 93 ? 'Ты победил!' : 'Попробуй снова!';
+}
+
+let isTouching = false;
+let touchStartY = 0;
+
+zone.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  isTouching = true;
+  touchStartY = e.touches[0].clientY;
+});
+
+zone.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if(!isTouching) return;
+  const delta = Math.abs(e.touches[0].clientY - touchStartY);
+  progress += delta * 0.05;
+  if(progress > 100) progress = 100;
+  updateProgress();
+  if(progress > 90) navigator.vibrate(50);
+});
+
+zone.addEventListener('touchend', () => {
+  isTouching = false;
+  zoneIndex++;
+  spawnZone();
+});
+
+</script>
+
 </body>
 </html>
