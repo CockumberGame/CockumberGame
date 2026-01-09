@@ -6,29 +6,58 @@
     <title>OGURCHIK RUSH</title>
     <link rel="stylesheet" href="styles.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* Добавляем базовые стили для лучшего отображения */
+        #cucumber {
+            width: 90%;
+            max-width: 350px;
+            height: auto;
+            object-fit: contain;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+        }
+        
+        #playfield {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            position: relative;
+            padding: 20px;
+        }
+    </style>
 </head>
 <body>
     <div id="app">
         <div id="menu" class="screen active">
             <h1>OGURCHIK<br>RUSH</h1>
+            <p style="text-align: center; margin: 20px 0; font-size: 12px; line-height: 1.5;">
+                ТРИ ЗОНЫ:<br>
+                🔴 Круг - тереть головку<br>
+                🟢 Полоса - тереть ствол<br>
+                🔵 Квадрат - быстро тапать
+            </p>
             <button id="startBtn">START</button>
         </div>
         <div id="game" class="screen">
             <div id="hud">
-                <div id="timer">60</div>
+                <div id="timer">30</div>
                 <div id="progress">
                     <div id="progressFill"></div>
                 </div>
                 <div id="score">Очки: 0</div>
+                <div id="level">Уровень: 1/5</div>
             </div>
             <div id="playfield">
-                <img id="cucumber" src="" />
+                <img id="cucumber" src="" alt="Огурец" />
                 <div id="zone"></div>
             </div>
         </div>
         <div id="result" class="screen">
             <h2 id="resultText"></h2>
-            <div id="finalScore"></div>
+            <div id="finalScore" style="margin: 20px 0; font-size: 18px;"></div>
+            <div id="levelResult" style="margin: 10px 0; font-size: 14px;"></div>
             <button id="retryBtn">Сыграть снова</button>
         </div>
     </div>

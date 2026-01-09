@@ -145,3 +145,56 @@ button:active {
     font-size: 14px;
   }
 }
+
+/* Добавляем в конец файла */
+
+/* Стили для разных типов зон */
+.zone-circle {
+    border: 3px dashed #ff5555;
+    border-radius: 50%;
+    background: rgba(255, 85, 85, 0.2);
+}
+
+.zone-vertical {
+    border: 3px dashed #55ff55;
+    border-radius: 10px;
+    background: rgba(85, 255, 85, 0.2);
+    width: 80px !important;
+    height: 150px !important;
+}
+
+.zone-tap {
+    border: 3px dashed #5555ff;
+    border-radius: 5px;
+    background: rgba(85, 85, 255, 0.2);
+    width: 100px !important;
+    height: 100px !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.zone-tap::after {
+    content: "TAP!";
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* Анимации для зон */
+@keyframes pulse {
+    0% { opacity: 0.6; }
+    50% { opacity: 0.9; }
+    100% { opacity: 0.6; }
+}
+
+#zone {
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    opacity: 0.8;
+    display: none;
+    touch-action: none;
+    animation: pulse 1.5s infinite;
+    transition: all 0.3s ease;
+}
