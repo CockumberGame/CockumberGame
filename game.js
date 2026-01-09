@@ -1,89 +1,144 @@
-// === CANVAS SETUP ===
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+// Game.js
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
 
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
+const menu = document.getElementById('menu');
+const game = document.getElementById('game');
+const result = document.getElementById('result');
+const startBtn = document.getElementById('startBtn');
+const retryBtn = document.getElementById('retryBtn');
+const timerEl = document.getElementById('timer');
+const progressFill = document.getElementById('progressFill');
+const playfield = document.getElementById('playfield');
+const zone = document.getElementById('zone');
+const cucumber = document.getElementById('cucumber');
+const resultText = document.getElementById('resultText');
 
+let levelTime = 60; // секунд на уровень
+let timer;
+let progress = 0;
+let zones = [];
+let currentZoneIndex = 0;
 
-// === UI ELEMENTS ===
-const menu = document.getElementById("menu");
-const resultScreen = document.getElementById("resultScreen");
-const startBtn = document.getElementById("startBtn");
-const nextLevelBtn = document.getElementById("nextLevelBtn");
-const restartBtn = document.getElementById("restartBtn");
+// уровни — картинки огурчиков
+const cucumbers = [
+  "assets/cucumber1.jpg",
+  "assets/cucumber2.jpg",
+  "assets/cucumber3.jpg",
+  "assets/cucumber4.jpg",
+  "assets/cucumber5.jpg"
+];
+let currentLevel = 0;
 
+startBtn.addEventListener('click', () => {
+  menu.classList.remove('active');
+  game.classList.add('active');
+  startLevel();
+});
 
-// === GAME STATE ===
-let currentLevel = 1;
-let totalScore = 0;
+retryBtn.addEventListener('click', () => {
+  result.classList.remove('active');
+  menu.classList.add('active');
+});
 
-let cucumberImg = new Image();
-cucumberImg.src = "assets/cucumber1.png";
-
-
-// === START GAME ===
-startBtn.onclick = () => {
-    menu.classList.add("hidden");
-    startLevel(1);
-};
-
-restartBtn.onclick = () => {
-    resultScreen.classList.add("hidden");
-    currentLevel = 1;
-    totalScore = 0;
-    startLevel(1);
-};
-
-nextLevelBtn.onclick = () => {
-    resultScreen.classList.add("hidden");
-    startLevel(currentLevel);
-};
-
-
-// === MAIN LEVEL START ===
-function startLevel(lvl) {
-    currentLevel = lvl;
-    loadLevelData(lvl).then(levelData => {
-        level = levelData;
-        cucumberImg.src = level.sprite;
-        startLevelLoop();
-    });
+function startLevel() {
+  progress = 0;
+  updateProgress();
+  currentZoneIndex = 0;
+  cucumber.src = cucumbers[currentLevel];
+  generateZones();
+  startTimer();
+  spawnZone();
 }
 
-
-// === LOAD JSON ===
-async function loadLevelData(num) {
-    const res = await fetch(`levels/level${num}.json`);
-    return res.json();
-}
-
-
-// === GAME LOOP ===
-function startLevelLoop() {
-    function loop() {
-        draw();
-        requestAnimationFrame(loop);
+// таймер уровня
+function startTimer() {
+  let timeLeft = levelTime;
+  timerEl.textContent = timeLeft;
+  clearInterval(timer);
+  timer = setInterval(() => {
+    timeLeft--;
+    timerEl.textContent = timeLeft;
+    if(timeLeft <= 0) {
+      clearInterval(timer);
+      endLevel();
     }
-    loop();
+  }, 1000);
 }
 
+// создаём зоны (верх, середина, низ)
+function generateZones() {
+  zones = [];
+  for(let i=0; i<10; i++) {
+    const typeRoll = Math.floor(Math.random()*3);
+    let type;
+    if(typeRoll === 0) type = 'circle';
+    if(typeRoll === 1) type = 'vertical';
+    if(typeRoll === 2) type = 'tap';
 
-// === DRAW ===
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const x = 30 + Math.random()*40; // 30–70% ширины
+    const y = 20 + Math.random()*60; // 20–80% высоты
+    zones.push({x, y, type});
+  }
+}
 
-    // центрируем огурчик
-    let w = canvas.width * 0.6;
-    let h = w * 2;
-    let x = (canvas.width - w) / 2;
-    let y = (canvas.height - h) / 2;
+// показываем текущую зону
+function spawnZone() {
+  if(currentZoneIndex >= zones.length) {
+    zone.style.display = 'none';
+    return;
+  }
+  const z = zones[currentZoneIndex];
+  zone.style.left = z.x + '%';
+  zone.style.top = z.y + '%';
+  zone.style.display = 'block';
+}
 
-    ctx.drawImage(cucumberImg, x, y, w, h);
+// обновляем прогресс-бар
+function updateProgress() {
+  progressFill.style.width = progress + '%';
+}
 
-    // TODO: здесь будут зоны, эффекты, прогресс-бар
+// логика трения / тап
+let isTouching = false;
+let touchStartY = 0;
+
+zone.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  isTouching = true;
+  touchStartY = e.touches[0].clientY;
+});
+
+zone.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if(!isTouching) return;
+
+  const delta = Math.abs(e.touches[0].clientY - touchStartY);
+  progress += delta * 0.05; // коэффициент трения
+  if(progress > 100) progress = 100;
+  updateProgress();
+
+  if(progress > 90) navigator.vibrate(50);
+});
+
+zone.addEventListener('touchend', () => {
+  isTouching = false;
+  currentZoneIndex++;
+  spawnZone();
+});
+
+// конец уровня
+function endLevel() {
+  clearInterval(timer);
+  game.classList.remove('active');
+  result.classList.add('active');
+
+  if(progress >= 93) {
+    resultText.textContent = "Ты победил!";
+    currentLevel++;
+    if(currentLevel >= cucumbers.length) currentLevel = 0; // повтор уровней
+  } else {
+    resultText.textContent = "Попробуй снова!";
+  }
 }
