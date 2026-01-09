@@ -1,49 +1,158 @@
+/* styles.css */
+
+/* Общие стили */
+* {
+  box-sizing: border-box;
+  touch-action: none;
+  margin: 0;
+  padding: 0;
+}
+
 body {
-    margin: 0;
-    overflow: hidden;
-    background: #1e1e1e;
-    font-family: 'Press Start 2P', monospace;
-    color: white;
-    touch-action: none; /* чтобы телега не “тянула” экран */
+  background: #1b1b1b;
+  color: white;
+  font-family: 'Press Start 2P', monospace;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
-#menu, #resultScreen {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 30px;
-    background: rgba(0,0,0,0.6);
-    z-index: 10;
+/* Контейнер приложения */
+#app {
+  width: 100%;
+  height: 100%;
+  position: relative;
 }
 
-.hidden {
-    display: none;
+/* Скрины (меню, игра, результат) */
+.screen {
+  display: none;
+  width: 100%;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.screen.active {
+  display: flex;
+}
+
+/* ===================== МЕНЮ ===================== */
+#menu h1 {
+  text-align: center;
+  font-size: 32px;
+  margin-bottom: 50px;
+  line-height: 1.2;
 }
 
 button {
-    padding: 20px 40px;
-    font-size: 16px;
-    border: none;
-    background: #444;
-    color: white;
-    border-radius: 10px;
-    cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 16px 40px;
+  border: none;
+  border-radius: 8px;
+  background: white;
+  color: black;
+  cursor: pointer;
+  margin: 10px 0;
+  transition: transform 0.1s ease, background 0.2s ease;
 }
 
 button:active {
-    transform: scale(0.95);
+  transform: scale(0.95);
+  background: #ddd;
 }
 
-.title {
-    font-size: 24px;
-    text-shadow: 0 0 10px black;
+/* ===================== HUD ИГРЫ ===================== */
+#hud {
+  position: absolute;
+  top: 10px;
+  left: 5%;
+  width: 90%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 16px;
 }
 
-#game {
-    position: absolute;
-    top: 0;
-    left: 0;
+#timer {
+  font-size: 18px;
+}
+
+#progress {
+  flex: 1;
+  height: 12px;
+  background: #555;
+  border-radius: 6px;
+  margin-left: 20px;
+  overflow: hidden;
+}
+
+#progressFill {
+  width: 0%;
+  height: 100%;
+  background: white;
+  border-radius: 6px;
+  transition: width 0.1s linear;
+}
+
+/* ===================== PLAYFIELD ===================== */
+#playfield {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#cucumber {
+  width: 70%;
+  max-width: 300px;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.6));
+  border-radius: 12px;
+}
+
+#zone {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border: 3px dashed white;
+  border-radius: 50%;
+  opacity: 0.8;
+  display: none;
+  touch-action: none;
+}
+
+/* ===================== РЕЗУЛЬТАТ ===================== */
+#result h2 {
+  text-align: center;
+  font-size: 24px;
+  margin-bottom: 40px;
+}
+
+#result button {
+  margin-top: 20px;
+}
+
+/* ===================== АДАПТИВНОСТЬ ===================== */
+@media (max-width: 500px) {
+  #cucumber {
+    max-width: 90%;
+  }
+
+  #zone {
+    width: 100px;
+    height: 100px;
+  }
+
+  button {
+    padding: 14px 28px;
+    font-size: 14px;
+  }
+
+  #hud {
+    font-size: 14px;
+  }
 }
