@@ -33,7 +33,7 @@ const CONFIG = {
     },
 
     FRAMES: {
-        head: 5, body: 9, bottom: 2, win: 10, lose: 6
+        head: 5, body: 9, bottom: 2, win: 10, lose: 10
     },
 
     SCRUB: { HEAD_STEP: 0.4 },
