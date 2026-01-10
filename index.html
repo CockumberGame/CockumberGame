@@ -118,20 +118,18 @@
                     <div id="combo-display" class="pixel-text hidden">x1.0</div>
                 </div>
 
-                <!-- СЛОЙ 4: СЕНСОРНЫЙ (HITBOXES) -->
-                <!-- Прозрачные блоки поверх всего, ловят касания -->
-                <div id="input-layer">
-                    <!-- Зона головы (0 - 240px) -->
-                    <div id="zone-head" class="touch-zone"></div>
-                    
-                    <!-- Зона тела (240 - 500px) -->
-                    <div id="zone-body" class="touch-zone"></div>
-                    
-                    <!-- Зона низа (500 - 640px) -->
-<div id="zone-tap-left" class="touch-zone"></div>
-<div id="zone-tap-right" class="touch-zone"></div>
-
-            </div>
+<!-- СЛОЙ 4: СЕНСОРНЫЙ (HITBOXES) -->
+<div id="input-layer">
+    <!-- Зона головы -->
+    <div id="zone-head" class="touch-zone"></div>
+    
+    <!-- Зона тела -->
+    <div id="zone-body" class="touch-zone"></div>
+    
+    <!-- ВАЖНО: Должно быть ДВЕ зоны тапа, а не одна -->
+    <div id="zone-tap-left" class="touch-zone"></div>
+    <div id="zone-tap-right" class="touch-zone"></div>
+</div>
 
             <!-- ========================================== -->
             <!-- ЭКРАН 3: РЕЗУЛЬТАТ -->
@@ -155,6 +153,6 @@
     </div> <!-- Конец #app-wrapper -->
 
     <!-- Основная логика игры -->
-    <script src="game.js"></script>
+<script src="game.js?v=3.1"></script>
 </body>
 </html>

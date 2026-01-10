@@ -1,3 +1,8 @@
+window.onerror = function(msg, url, line) {
+   alert("Ошибка: " + msg + "\nСтрока: " + line);
+   return true;
+};
+
 /* ==================================================================
    COCKUMBER RUBBER - FINAL CORE v3.0 (Sound & Sprites Fix)
    ================================================================== */
