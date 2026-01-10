@@ -4,17 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
+    <!-- Настройки для iOS (чтобы выглядело как приложение) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="format-detection" content="telephone=no">
 
     <title>Cockumber Rubber</title>
 
+    <!-- Шрифт (Пиксельный) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 
     <link rel="stylesheet" href="styles.css">
+    <!-- Подключаем SDK Телеграма -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -26,10 +29,13 @@
             <div id="screen-menu" class="screen active">
                 <div class="menu-content">
                     <h1 class="game-title">COCKUMBER<br>RUBBER</h1>
+                    
+                    <!-- Блок рекорда (Важно: id совпадает с JS для LocalStorage) -->
                     <div class="highscore-box">
-                        <span class="label">Очков надрочено:</span>
+                        <span class="label">РЕКОРД:</span>
                         <span id="menu-best-score">0</span>
                     </div>
+                    
                     <button id="btn-start" class="pixel-btn">НАЧАТЬ</button>
                 </div>
             </div>
@@ -37,23 +43,26 @@
             <!-- === ЭКРАН 2: ГЕЙМПЛЕЙ === -->
             <div id="screen-game" class="screen">
                 
+                <!-- Задний фон -->
                 <img src="assets/bg.png" id="game-bg" alt="background">
 
-                <!-- СЛОЙ 1: ИГРОВОЙ МИР -->
+                <!-- СЛОЙ 1: ИГРОВОЙ МИР (СПРАЙТЫ) -->
                 <div id="world-layer">
+                    <!-- Базовый огурец (статика) -->
                     <img src="assets/cucumber_base.png" id="cucumber-base" class="sprite" alt="cucumber">
 
-                    <!-- Оверлеи анимаций -->
+                    <!-- Оверлеи анимаций (JS управляет их background-position) -->
                     <div id="anim-head" class="anim-sprite"></div>
                     <div id="anim-body" class="anim-sprite"></div>
-                    <div id="anim-bottom" class="anim-sprite"></div>
+                    <div id="anim-bottom" class="anim-sprite"></div> <!-- Здесь будет новый Тап (4 кадра) -->
 
                     <!-- Иконки-подсказки -->
                     <img src="assets/icon_arrow.png" id="icon-head" class="icon-indicator hidden" alt="spin">
                     <img src="assets/icon_arrow_vertical.png" id="icon-body" class="icon-indicator hidden" alt="rub">
                     
-                    <img src="assets/icon_tap.png" id="icon-tap-1" class="icon-indicator hidden" alt="tap">
-                    <img src="assets/icon_tap.png" id="icon-tap-2" class="icon-indicator hidden" alt="tap">
+                    <!-- Иконки целей для Тапа (Левая и Правая) -->
+                    <img src="assets/icon_tap.png" id="icon-tap-1" class="icon-indicator hidden" alt="tap L">
+                    <img src="assets/icon_tap.png" id="icon-tap-2" class="icon-indicator hidden" alt="tap R">
                 </div>
 
                 <!-- СЛОЙ 2: ВСПЛЫВАЮЩИЕ ОЧКИ -->
@@ -65,12 +74,11 @@
                         <div id="timer-digits" class="pixel-text">60</div>
                         <div class="progress-bar-container">
                             <div id="progress-fill"></div>
-                            <div id="score-text" class="pixel-text">0 / 2000</div>
+                            <div id="score-text" class="pixel-text">0 / 4500</div>
                         </div>
                     </div>
 
-                    <!-- ИСПРАВЛЕНО: УБРАН CLASS="HIDDEN" -->
-                    <!-- Полоска теперь видна сразу и показывает статус -->
+                    <!-- Полоска фазы (Таймер действия) -->
                     <div id="phase-timer-container">
                         <div id="phase-timer-fill"></div>
                         <div id="phase-text">ГОТОВЬСЯ...</div>
@@ -81,9 +89,12 @@
                 </div>
 
                 <!-- СЛОЙ 4: СЕНСОРНЫЙ (HITBOXES) -->
+                <!-- Важно: id зон должны совпадать с game.js -->
                 <div id="input-layer">
                     <div id="zone-head" class="touch-zone"></div>
                     <div id="zone-body" class="touch-zone"></div>
+                    
+                    <!-- Зоны для нового тапа (Левая и Правая половина низа) -->
                     <div id="zone-tap-left" class="touch-zone"></div>
                     <div id="zone-tap-right" class="touch-zone"></div>
                 </div>
@@ -92,6 +103,7 @@
 
             <!-- === ЭКРАН 3: РЕЗУЛЬТАТ === -->
             <div id="screen-result" class="screen">
+                <!-- Сюда JS добавит фон anim-win или anim-lose -->
                 <div class="result-content">
                     <h2 id="result-title">РЕЗУЛЬТАТ</h2>
                     
@@ -102,7 +114,7 @@
 
                     <p id="result-message" class="result-msg">...</p>
                     
-                    <button id="btn-retry" class="pixel-btn">Упс... :(</button>
+                    <button id="btn-retry" class="pixel-btn">ЕЩЕ РАЗ</button>
                     <button id="btn-next" class="pixel-btn hidden">ДРОЧИТЬ ЕЩЕ >></button>
                 </div>
             </div>
@@ -110,7 +122,7 @@
         </div> 
     </div>
 
-    <!-- Обновил версию для сброса кэша -->
-    <script src="game.js?v=v12.0"></script>
+    <!-- Обновляем версию v14.0 для сброса кэша -->
+    <script src="game.js?v=v14.0"></script>
 </body>
 </html>

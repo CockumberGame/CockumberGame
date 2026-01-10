@@ -1,5 +1,5 @@
 /* ==================================================================
-   COCKUMBER RUBBER - MAIN STYLESHEET
+   COCKUMBER RUBBER - MAIN STYLESHEET v13.0
    Style: Retro Arcade CRT
    ================================================================== */
 
@@ -27,7 +27,7 @@
     user-select: none;
     -webkit-user-select: none;
     -webkit-tap-highlight-color: transparent;
-    touch-action: none;
+    touch-action: none; /* Отключает зум и скролл браузера */
 }
 
 /* Принудительная пикселизация (Anti-aliasing OFF) */
@@ -72,6 +72,20 @@ body {
     box-shadow: inset 0 0 150px rgba(0,0,0,0.9); /* Виньетка */
 }
 
+/* 
+   PRELOADER HACK:
+   Загружаем картинки в невидимый блок, чтобы они были в кэше к началу игры.
+   Браузер скачает их, пока игрок в меню.
+*/
+#app-wrapper::before {
+    content: url('assets/anim_head.png') url('assets/anim_body.png') url('assets/anim_bottom.png') url('assets/anim_win.png') url('assets/anim_lose.png');
+    position: absolute;
+    width: 0; height: 0;
+    opacity: 0;
+    z-index: -9999;
+    pointer-events: none;
+}
+
 /* Игровой экран (360x640) */
 #game-container {
     position: relative;
@@ -82,6 +96,10 @@ body {
     border-radius: 4px;
     /* Неоновое свечение рамки */
     box-shadow: 0 0 0 2px #333, 0 0 40px rgba(85, 255, 85, 0.05);
+    
+    /* Включаем GPU ускорение для всего контейнера */
+    transform: translate3d(0, 0, 0); 
+    backface-visibility: hidden;
 }
 
 /* CRT Эффект (Полосы монитора) */
@@ -221,21 +239,6 @@ body {
     text-align: center;
 }
 
-.result-top {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    width: 100%;
-    margin-top: 20px;
-}
-
-.result-bottom {
-    width: 100%;
-    display: flex;
-    justify-content: center;
-    margin-bottom: 40px;
-}
-
 /* === 5. ИГРОВОЕ ПОЛЕ (СЛОИ) === */
 
 #game-bg {
@@ -258,7 +261,10 @@ body {
     top: 0; left: 0;
     width: 360px; height: 640px;
     background-repeat: no-repeat;
+    /* Оптимизация анимации */
     will-change: background-position;
+    transform: translate3d(0, 0, 0); 
+    
     opacity: 0;
     transition: opacity 0.1s;
     pointer-events: none;
@@ -315,6 +321,7 @@ body {
     box-shadow: 2px 2px 0 rgba(0,0,0,0.5);
 }
 .timer-crit { color: var(--danger) !important; border-color: var(--danger) !important; animation: blink 0.5s infinite; }
+.timer-orange { color: var(--warn) !important; border-color: var(--warn) !important; }
 
 /* Прогресс бар */
 .progress-bar-container {
@@ -330,7 +337,6 @@ body {
 #progress-fill {
     height: 100%; width: 0%;
     background-color: var(--primary);
-    /* Анимированная полоска */
     background-image: linear-gradient(45deg, rgba(255,255,255,0.2) 25%, transparent 25%, transparent 50%, rgba(255,255,255,0.2) 50%, rgba(255,255,255,0.2) 75%, transparent 75%, transparent);
     background-size: 20px 20px;
     animation: move-stripes 1s linear infinite;
@@ -394,7 +400,7 @@ body {
 }
 
 .touch-zone { position: absolute; }
-/* Координаты зон синхронизированы с JS */
+/* Координаты зон */
 #zone-head { top: 0; left: 0; width: 100%; height: 240px; }
 #zone-body { top: 240px; height: 260px; width: 120px; left: 50%; transform: translateX(-50%); }
 #zone-tap-left { top: 500px; left: 0; width: 50%; height: 140px; }
@@ -413,12 +419,11 @@ body {
 
 /* БОНУСНЫЙ ТЕКСТ (JUICE) */
 
-/* Perfect Stroke */
 .text-perfect {
     font-size: 32px !important;
     text-align: center;
     width: 360px;
-    margin-left: -180px; /* Центровка */
+    margin-left: -180px;
     background: linear-gradient(to bottom, #fff 0%, #ffff00 30%, #ff0000 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -428,7 +433,6 @@ body {
     z-index: 100 !important;
 }
 
-/* Gentle Touch */
 .text-gentle {
     font-size: 24px !important;
     color: var(--pink);
@@ -437,7 +441,6 @@ body {
     animation: floatUp 1s ease-out forwards;
 }
 
-/* Burst */
 .text-burst {
     font-size: 32px !important;
     color: #fff;

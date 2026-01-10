@@ -1,9 +1,6 @@
-window.onerror = function(msg, url, line) {
-   return false;
-};
-
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v12.0 (AUDIO OPTIMIZATION & FRAMES FIX)
+   COCKUMBER RUBBER - CORE v14.0
+   (Targeted Tap System, Multi-touch, Audio Fixes)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -24,16 +21,26 @@ const CONFIG = {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
         BODY_BONUS: 69, 
-        TAP: 3,
+        TAP: 5,            // Подняли очки за точный тап
+        TAP_DOUBLE: 15,    // Очки за двойной тап
         PENALTY_BASE: 15,
-        MAX_COMBO: 2.0,
+        MAX_COMBO: 2.5,    // Чуть выше комбо
         BONUS_GENTLE: 13,
         BONUS_BURST_MULT: 2
     },
 
+    // НАСТРОЙКИ ТАПА
+    TAP_MECHANIC: {
+        SPAWN_INTERVAL: 800, // Пауза между появлением целей (мс)
+        DOUBLE_WINDOW: 200,  // Время (мс) между касаниями для засчитывания двойного тапа
+    },
+
     FRAMES: {
-        head: 5, body: 9, bottom: 2, win: 10, 
-        lose: 10 // ИСПРАВЛЕНО: Было 6, стало 10
+        head: 5, 
+        body: 9, 
+        bottom: 4, // 0=Idle, 1=Left, 2=Right, 3=Double
+        win: 10, 
+        lose: 10
     },
 
     SCRUB: { HEAD_STEP: 0.4 },
@@ -47,9 +54,7 @@ const CONFIG = {
     
     GOALS: {
         BODY_STROKES: 8,
-        HEAD_TICKS: 26,   
-        TAP_BURST: 10,
-        TAP_BURST_FREQ: 3 
+        HEAD_TICKS: 26 
     },
 
     PHASE_MIN_TIME: 4000,
@@ -62,7 +67,7 @@ const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
 const PHASE_TEXTS = {
     [PHASES.HEAD]: "КРУТИ ГОЛОВКУ!",
     [PHASES.BODY]: "ТРИ СТВОЛ!",
-    [PHASES.TAP]: "СТУЧИ ПО ШАРАМ!",
+    [PHASES.TAP]: "СЛЕДИ ЗА ЦЕЛЬЮ!",
     [PHASES.WAIT]: "ГОТОВЬСЯ..."
 };
 
@@ -70,6 +75,7 @@ const PHASE_TEXTS = {
 let state = {
     isPlaying: false,
     score: 0,
+    bestScore: 0,
     timeRemaining: CONFIG.LEVEL_TIME,
     currentPhase: PHASES.WAIT,
     phaseEndTime: 0,
@@ -78,23 +84,19 @@ let state = {
     combo: 1.0,
     lastActionTime: 0,
     
-    phaseCounters: { headTicks: 0, bodyStrokes: 0, taps: 0 },
-    strokeState: 0
+    phaseCounters: { headTicks: 0, bodyStrokes: 0 },
+    strokeState: 0,
+
+    // Переменные для Тапа
+    tapTarget: null,         // 'left', 'right', 'double'
+    tapNextSpawnTime: 0,
+    doubleTapLatch: 0        // Таймер первого пальца для мультитача
 };
 
-const audioPool = {
-    head: [], body: [], tap: [], win: null, lose: null,
-    tapIndex: 0
-};
-
-// Спрайты
-let sprites = {
-    head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
-    body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
-    bottom: { frame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
-    win:    { frame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
-    lose:   { frame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
-};
+// Глобальные ID для остановки циклов
+let gameLoopId = null;
+let timerIntervalId = null;
+let resultAnimId = null;
 
 const getEl = (id) => document.getElementById(id);
 const els = {
@@ -113,9 +115,11 @@ const els = {
         phaseBarFill: getEl('phase-timer-fill'),
         phaseText: getEl('phase-text'),
         
+        menuBestScore: getEl('menu-best-score'),
         resultScore: getEl('result-score-val'),
         resultTitle: getEl('result-title'),
         resultMsg: getEl('result-message'),
+        btnStart: getEl('btn-start'),
         btnRetry: getEl('btn-retry'),
         btnNext: getEl('btn-next'),
         combo: getEl('combo-display')
@@ -129,55 +133,86 @@ const els = {
     icons: {
         head: getEl('icon-head'),
         body: getEl('icon-body'),
-        tap1: getEl('icon-tap-1'),
-        tap2: getEl('icon-tap-2')
+        tap1: getEl('icon-tap-1'), // Левая иконка
+        tap2: getEl('icon-tap-2')  // Правая иконка
     },
     particles: getEl('particles-container')
 };
 
-// === 3. INIT ===
+// Спрайты
+let sprites = {
+    head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
+    body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
+    bottom: { frame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
+    win:    { frame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
+    lose:   { frame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
+};
 
-function initAudio() {
-    const load = (path) => {
-        const a = new Audio(path);
-        a.volume = 0.9;
-        a.onerror = () => {}; 
-        return a;
-    };
-    audioPool.head = []; audioPool.body = []; audioPool.tap = [];
-    
-    for(let i=1; i<=3; i++) {
-        audioPool.head.push(load(`assets/sfx_head_${i}.mp3`));
-        audioPool.body.push(load(`assets/sfx_body_${i}.mp3`));
+// === 3. AUDIO SYSTEM (POOLING) ===
+const audioSystem = {
+    pool: { head: [], body: [], tap: [], win: [], lose: [] },
+    initialized: false,
+
+    init: function() {
+        if (this.initialized) return;
+        this.createPool('tap', 10, ['assets/sfx_tap_1.mp3', 'assets/sfx_tap_2.mp3', 'assets/sfx_tap_3.mp3']); 
+        this.createPool('head', 3, ['assets/sfx_head_1.mp3', 'assets/sfx_head_2.mp3', 'assets/sfx_head_3.mp3']);
+        this.createPool('body', 3, ['assets/sfx_body_1.mp3', 'assets/sfx_body_2.mp3', 'assets/sfx_body_3.mp3']);
+        this.createPool('win', 1, ['assets/sfx_win.mp3']);
+        this.createPool('lose', 1, ['assets/sfx_lose.mp3']);
+        this.initialized = true;
+    },
+
+    createPool: function(key, count, sources) {
+        for (let i = 0; i < count; i++) {
+            const src = sources[i % sources.length];
+            const audio = new Audio(src);
+            audio.volume = 0.9;
+            audio.preload = 'auto';
+            this.pool[key].push(audio);
+        }
+    },
+
+    play: function(key) {
+        if (!this.initialized) return;
+        const tracks = this.pool[key];
+        if (!tracks || tracks.length === 0) return;
+        let sound = tracks.find(t => t.paused);
+        if (!sound) { sound = tracks[0]; sound.currentTime = 0; }
+        sound.play().catch(()=>{});
     }
-    for(let i=0; i<10; i++) {
-        const num = (i % 3) + 1; 
-        audioPool.tap.push(load(`assets/sfx_tap_${num}.mp3`));
-    }
-    audioPool.win = load('assets/sfx_win.mp3');
-    audioPool.lose = load('assets/sfx_lose.mp3');
+};
+
+// === 4. SAVE SYSTEM ===
+function loadBestScore() {
+    try {
+        const saved = localStorage.getItem('cockumber_best');
+        if (saved) {
+            state.bestScore = parseInt(saved, 10);
+            if (els.ui.menuBestScore) els.ui.menuBestScore.textContent = state.bestScore;
+        }
+    } catch (e) {}
 }
 
+function saveBestScore() {
+    if (state.score > state.bestScore) {
+        state.bestScore = state.score;
+        try { localStorage.setItem('cockumber_best', state.bestScore); } catch (e) {}
+    }
+}
+
+// === 5. INITIALIZATION ===
 function initSprites() {
-    const world = document.getElementById('world-layer');
-    if(!world) return;
-    
-    // Игровые спрайты
     const createAnimEl = (id, imgName, frameCount) => {
         let el = document.getElementById(id);
         if (!el) {
             el = document.createElement('div');
             el.id = id;
             el.className = 'anim-sprite';
-            world.appendChild(el);
+            els.world.appendChild(el);
         }
-        el.style.position = 'absolute';
-        el.style.top = '0'; el.style.left = '0';
-        el.style.width = '360px'; el.style.height = '640px'; 
         el.style.backgroundImage = `url('assets/${imgName}')`;
-        el.style.backgroundRepeat = 'no-repeat';
-        el.style.backgroundSize = `${frameCount * 360}px 640px`;
-        el.style.backgroundPosition = `0px 0px`;
+        el.style.backgroundSize = `${frameCount * CONFIG.REF_WIDTH}px ${CONFIG.REF_HEIGHT}px`;
         return el;
     };
 
@@ -185,23 +220,19 @@ function initSprites() {
     sprites.body.el = createAnimEl('anim-body', 'anim_body.png', sprites.body.frames);
     sprites.bottom.el = createAnimEl('anim-bottom', 'anim_bottom.png', sprites.bottom.frames);
     
-    const resScreen = els.screens.result;
-    
+    // Результаты
     const createResSprite = (id, img, frames) => {
         let el = document.getElementById(id);
         if(!el) {
             el = document.createElement('div');
             el.id = id;
             el.className = 'result-bg-anim';
-            resScreen.insertBefore(el, resScreen.firstChild);
+            els.screens.result.insertBefore(el, els.screens.result.firstChild);
         }
         el.style.backgroundImage = `url('assets/${img}')`;
-        el.style.backgroundSize = `${frames * 360}px 640px`;
-        el.style.backgroundRepeat = 'no-repeat';
-        el.style.display = 'none';
+        el.style.backgroundSize = `${frames * CONFIG.REF_WIDTH}px ${CONFIG.REF_HEIGHT}px`;
         return el;
     }
-
     sprites.win.el = createResSprite('anim-win-bg', 'anim_win.png', sprites.win.frames);
     sprites.lose.el = createResSprite('anim-lose-bg', 'anim_lose.png', sprites.lose.frames);
 }
@@ -216,15 +247,17 @@ function resizeGame() {
     }
 }
 window.addEventListener('resize', resizeGame);
+loadBestScore();
 resizeGame();
 
-// === 4. GAME LOOP ===
-if (getEl('btn-start')) getEl('btn-start').onclick = startGame;
-if (getEl('btn-retry')) getEl('btn-retry').onclick = startGame;
-if (getEl('btn-next')) getEl('btn-next').onclick = startGame;
+if (els.ui.btnStart) els.ui.btnStart.onclick = startGame;
+if (els.ui.btnRetry) els.ui.btnRetry.onclick = startGame;
+if (els.ui.btnNext) els.ui.btnNext.onclick = startGame;
+
+// === 6. GAME CONTROL ===
 
 function startGame() {
-    initAudio();
+    audioSystem.init();
     initSprites();
     
     state.score = 0;
@@ -246,10 +279,18 @@ function startGame() {
     Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     updateScoreUI();
     
-    if (window.loopId) cancelAnimationFrame(window.loopId);
-    if (window.secTimerId) clearInterval(window.secTimerId);
-    window.secTimerId = setInterval(onSecondTick, 1000);
+    stopGameLoops();
+    timerIntervalId = setInterval(onSecondTick, 1000);
     gameLoop();
+}
+
+function stopGameLoops() {
+    if (gameLoopId) cancelAnimationFrame(gameLoopId);
+    if (resultAnimId) cancelAnimationFrame(resultAnimId);
+    if (timerIntervalId) clearInterval(timerIntervalId);
+    gameLoopId = null;
+    resultAnimId = null;
+    timerIntervalId = null;
 }
 
 function onSecondTick() {
@@ -258,7 +299,6 @@ function onSecondTick() {
     els.ui.timerDigits.textContent = state.timeRemaining;
     
     if (state.timeRemaining <= 10) els.ui.timerDigits.className = 'pixel-text timer-crit';
-    else if (state.timeRemaining <= 20) els.ui.timerDigits.className = 'pixel-text timer-orange';
     
     if (state.timeRemaining <= 0) finishGame();
 }
@@ -268,6 +308,14 @@ function gameLoop() {
     const now = Date.now();
     renderSprites();
     
+    // Спавнер целей для ТАПА
+    if (state.currentPhase === PHASES.TAP) {
+        if (!state.tapTarget && now > state.tapNextSpawnTime) {
+            spawnTapTarget();
+        }
+    }
+    
+    // Смена фаз
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
             pickNewPhase();
@@ -276,6 +324,7 @@ function gameLoop() {
         }
     }
 
+    // Комбо убывает
     if (now - state.lastActionTime > 2000) {
         if (state.combo > 1.0) {
             state.combo = Math.max(1.0, state.combo - 0.02);
@@ -283,6 +332,7 @@ function gameLoop() {
         }
     }
 
+    // Прогресс фазы
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const pct = Math.max(0, (timeLeft / state.phaseTotalTime) * 100);
@@ -291,21 +341,37 @@ function gameLoop() {
         els.ui.phaseBarFill.style.width = '0%';
     }
     
-    window.loopId = requestAnimationFrame(gameLoop);
+    gameLoopId = requestAnimationFrame(gameLoop);
 }
 
-function updateComboUI() {
-    if (els.ui.combo) {
-        if (state.combo >= 1.1) {
-            els.ui.combo.textContent = `x${state.combo.toFixed(1)}`;
-            els.ui.combo.classList.remove('hidden');
-        } else {
-            els.ui.combo.classList.add('hidden');
-        }
+// === 7. LOGIC (TAP, HEAD, BODY) ===
+
+// --- TAP GENERATOR ---
+function spawnTapTarget() {
+    const r = Math.random();
+    let type = 'left';
+    
+    if (r > 0.7) type = 'double';     // 30% Двойной
+    else if (r > 0.35) type = 'right'; // 35% Правый
+    // иначе Left
+
+    state.tapTarget = type;
+    state.doubleTapLatch = 0; // Сброс для двойного касания
+
+    // Показываем нужные иконки
+    if (type === 'left') {
+        els.icons.tap1.classList.remove('hidden');
+        els.icons.tap2.classList.add('hidden');
+    } else if (type === 'right') {
+        els.icons.tap1.classList.add('hidden');
+        els.icons.tap2.classList.remove('hidden');
+    } else if (type === 'double') {
+        els.icons.tap1.classList.remove('hidden');
+        els.icons.tap2.classList.remove('hidden');
     }
 }
 
-// === 5. SPRITE RENDER ===
+// --- RENDERING ---
 function renderSprites() {
     let anyActive = false;
     ['head', 'body', 'bottom'].forEach(name => {
@@ -317,7 +383,7 @@ function renderSprites() {
             anyActive = true;
             const currentFrame = Math.floor(s.frame);
             if(!isNaN(currentFrame)) {
-                const pixelShift = -(currentFrame * 360);
+                const pixelShift = -(currentFrame * CONFIG.REF_WIDTH);
                 s.el.style.backgroundPosition = `${pixelShift}px 0px`;
             }
         } else {
@@ -330,36 +396,17 @@ function renderSprites() {
     }
 }
 
-function scrubSprite(name, deltaFrames) {
-    const s = sprites[name];
-    if (!s || !s.el) return;
-    s.visible = true;
-    s.frame += deltaFrames;
-    if (s.frame >= s.frames) s.frame = 0;
-    if (s.frame < 0) s.frame = s.frames - 1;
-}
-
-function mapSpriteToPosition(name, percent) {
-    const s = sprites[name];
-    if (!s || !s.el) return;
-    s.visible = true;
-    let targetFrame = Math.floor(percent * s.frames);
-    if (targetFrame < 0) targetFrame = 0;
-    if (targetFrame >= s.frames) targetFrame = s.frames - 1;
-    s.frame = targetFrame;
-}
-
-// === PHASE LOGIC ===
-
 function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
     state.phaseTotalTime = CONFIG.PAUSE_TIME;
     
+    // Скрываем всё
     Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     sprites.head.visible = false;
     sprites.body.visible = false;
     sprites.bottom.visible = false;
+    state.tapTarget = null;
     
     if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[PHASES.WAIT];
 }
@@ -370,9 +417,18 @@ function pickNewPhase() {
     if (next === state.lastPhase && Math.random() > 0.4) next = phases.find(p => p !== state.lastPhase);
     
     state.lastPhase = next;
+
+    // Сброс переменных Тапа при входе в фазу
+    if (next === PHASES.TAP) {
+        state.tapTarget = null;
+        state.tapNextSpawnTime = Date.now() + 500;
+        state.doubleTapLatch = 0;
+        els.icons.tap1.classList.add('hidden');
+        els.icons.tap2.classList.add('hidden');
+    }
+
     state.currentPhase = next;
-    
-    state.phaseCounters = { headTicks: 0, bodyStrokes: 0, taps: 0 };
+    state.phaseCounters = { headTicks: 0, bodyStrokes: 0 };
     state.strokeState = 0; 
 
     tg.HapticFeedback.impactOccurred('light');
@@ -381,48 +437,28 @@ function pickNewPhase() {
     state.phaseTotalTime = duration;
     state.phaseEndTime = Date.now() + duration;
 
-    // Icons
-    if (next === PHASES.HEAD && els.icons.head) els.icons.head.classList.remove('hidden');
-    if (next === PHASES.BODY && els.icons.body) els.icons.body.classList.remove('hidden');
-    if (next === PHASES.TAP) {
-        if(els.icons.tap1) els.icons.tap1.classList.remove('hidden');
-        if(els.icons.tap2) els.icons.tap2.classList.remove('hidden');
-    }
+    if (next === PHASES.HEAD) els.icons.head.classList.remove('hidden');
+    if (next === PHASES.BODY) els.icons.body.classList.remove('hidden');
     
     if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[next];
 }
 
-function playSound(type) {
-    if (type === PHASES.TAP) {
-        const snd = audioPool.tap[audioPool.tapIndex];
-        if (snd.currentTime > 0) snd.currentTime = 0;
-        snd.play().catch(()=>{});
-        audioPool.tapIndex++;
-        if (audioPool.tapIndex >= audioPool.tap.length) audioPool.tapIndex = 0;
-        return;
-    }
-    
-    const pool = audioPool[type];
-    if (!pool || pool.some(s => !s.paused)) return;
-    
-    const snd = pool[Math.floor(Math.random() * pool.length)];
-    snd.currentTime = 0;
-    snd.play().catch(()=>{});
-}
+// === 8. INPUT HANDLING ===
 
-// === INPUT ===
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
 
+// События
 if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
 if(els.zones.body) els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
+
+// ТАП: Слушаем конкретные зоны (Левая/Правая)
 if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 
 if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
 if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => startBodyStroke(e));
-if(els.zones.body) els.zones.body.addEventListener('touchend', (e) => endBodyStroke(e));
 
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
@@ -432,29 +468,22 @@ window.addEventListener('touchend', () => {
 
 let gestureData = {
     headAngle: null, headAccumulator: 0, accFrameHead: 0,
-    bodyLastY: null, bodyAccumulator: 0,
-    strokeStartY: 0, strokeMinY: 9999, strokeMaxY: 0
+    bodyLastY: null, bodyAccumulator: 0, strokeStartY: 0
 };
 
 function startBodyStroke(e) {
-    if (state.currentPhase !== PHASES.BODY) {
-        checkPenaltyTap(e, PHASES.BODY);
-        return;
-    }
+    if (state.currentPhase !== PHASES.BODY) { checkPenaltyTap(e, PHASES.BODY); return; }
     const touch = e.touches[0];
     gestureData.strokeStartY = touch.clientY;
-    gestureData.strokeMinY = touch.clientY;
-    gestureData.strokeMaxY = touch.clientY;
-}
-
-function endBodyStroke(e) {
-    if (state.currentPhase !== PHASES.BODY) return;
+    gestureData.bodyLastY = touch.clientY;
+    gestureData.bodyAccumulator = 0;
 }
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     const touch = e.touches[0];
     
+    // Общая проверка фазы
     if (state.currentPhase !== zoneName) {
         applyPenalty(touch, 1);
         return;
@@ -464,10 +493,86 @@ function handleInput(e, zoneName) {
     switch (zoneName) {
         case PHASES.HEAD: processHead(touch, e.currentTarget); break;
         case PHASES.BODY: processBody(touch, e.currentTarget); break;
-        case PHASES.TAP: processTap(touch); break;
+        case PHASES.TAP: 
+            // Определяем, какую именно половину нажали по ID
+            const side = e.currentTarget.id === 'zone-tap-left' ? 'left' : 'right';
+            processTapNew(touch, side); 
+            break;
     }
 }
 
+// --- НОВАЯ ЛОГИКА ТАПА ---
+function processTapNew(touch, zoneSide) {
+    const now = Date.now();
+    
+    // 1. Если цели нет, а игрок жмет -> Штраф
+    if (!state.tapTarget) {
+        applyPenalty(touch, 0.5);
+        return;
+    }
+
+    // 2. ДВОЙНОЙ ТАП
+    if (state.tapTarget === 'double') {
+        if (state.doubleTapLatch === 0) {
+            // Первое касание
+            state.doubleTapLatch = now;
+        } else {
+            // Второе касание
+            const diff = now - state.doubleTapLatch;
+            if (diff < CONFIG.TAP_MECHANIC.DOUBLE_WINDOW) {
+                completeTap('double', touch); // УСПЕХ DOUBLE!
+            } else {
+                state.doubleTapLatch = now; // Слишком медленно, сброс
+            }
+        }
+        return;
+    }
+
+    // 3. ОДИНОЧНЫЕ ТАПЫ
+    if (state.tapTarget === zoneSide) {
+        completeTap(zoneSide, touch); // УСПЕХ!
+    } else {
+        applyPenalty(touch, 1); // Не та сторона
+        shakeScreen();
+    }
+}
+
+function completeTap(type, touch) {
+    // Скрываем иконки и сбрасываем цель
+    els.icons.tap1.classList.add('hidden');
+    els.icons.tap2.classList.add('hidden');
+    state.tapTarget = null;
+    state.tapNextSpawnTime = Date.now() + CONFIG.TAP_MECHANIC.SPAWN_INTERVAL;
+
+    // Анимация спрайта (bottom)
+    const s = sprites.bottom;
+    s.visible = true;
+    s.el.style.opacity = 1;
+    
+    // Выбор кадра: 1=Left, 2=Right, 3=Double
+    if (type === 'left') s.frame = 1;
+    else if (type === 'right') s.frame = 2;
+    else if (type === 'double') s.frame = 3;
+
+    // Сдвиг спрайта
+    const pixelShift = -(s.frame * CONFIG.REF_WIDTH);
+    s.el.style.backgroundPosition = `${pixelShift}px 0px`;
+
+    // Таймер скрытия спрайта
+    setTimeout(() => { 
+        if(state.currentPhase === PHASES.TAP) { s.visible = false; s.el.style.opacity = 0; }
+    }, 150);
+
+    // Очки и эффекты
+    let pts = CONFIG.SCORE.TAP;
+    if (type === 'double') pts = CONFIG.SCORE.TAP_DOUBLE;
+
+    audioSystem.play('tap');
+    triggerSuccessCommon(pts, touch.clientX, touch.clientY);
+    squashCucumber();
+}
+
+// --- HEAD LOGIC ---
 function processHead(touch, target) {
     const rect = target.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
@@ -481,7 +586,8 @@ function processHead(touch, target) {
         
         gestureData.headAccumulator += Math.abs(delta);
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
-            triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
+            triggerSuccessCommon(CONFIG.SCORE.HEAD_SPIN, touch.clientX, touch.clientY);
+            audioSystem.play('head');
             gestureData.headAccumulator = 0;
             
             state.phaseCounters.headTicks++;
@@ -494,27 +600,47 @@ function processHead(touch, target) {
         gestureData.accFrameHead += delta;
         if (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
             const dir = gestureData.accFrameHead > 0 ? 1 : -1;
-            scrubSprite('head', dir);
+            const s = sprites.head;
+            if (s && s.el) {
+                s.visible = true;
+                s.frame += dir;
+                if (s.frame >= s.frames) s.frame = 0;
+                if (s.frame < 0) s.frame = s.frames - 1;
+            }
             gestureData.accFrameHead = 0;
         }
     }
     gestureData.headAngle = angle;
 }
 
+// --- BODY LOGIC ---
 function processBody(touch, target) {
     const y = touch.clientY;
     const rect = target.getBoundingClientRect();
     let percent = (y - rect.top) / rect.height;
-    mapSpriteToPosition('body', percent);
+    
+    const s = sprites.body;
+    if (s && s.el) {
+        s.visible = true;
+        let targetFrame = Math.floor(percent * s.frames);
+        if (targetFrame < 0) targetFrame = 0;
+        if (targetFrame >= s.frames) targetFrame = s.frames - 1;
+        s.frame = targetFrame;
+    }
     
     const isAtTop = percent < CONFIG.THRESHOLDS.BODY_TOP_LIMIT;    
     const isAtBottom = percent > CONFIG.THRESHOLDS.BODY_BOTTOM_LIMIT; 
     
     if (isAtTop) {
-        if (state.strokeState === 2) completeBodyStroke(touch);
+        if (state.strokeState === 2) {
+            state.phaseCounters.bodyStrokes++;
+            if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
+                triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНО!", 'text-perfect', 180, 320);
+                state.phaseCounters.bodyStrokes = 0; 
+            }
+        }
         state.strokeState = 1; 
     } else if (isAtBottom) {
-        if (state.strokeState === 1) completeBodyStroke(touch);
         state.strokeState = 2; 
     }
 
@@ -522,56 +648,12 @@ function processBody(touch, target) {
         const delta = Math.abs(y - gestureData.bodyLastY);
         gestureData.bodyAccumulator += delta;
         if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
-            triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
+            triggerSuccessCommon(CONFIG.SCORE.BODY_RUB, touch.clientX, touch.clientY);
+            audioSystem.play('body');
             gestureData.bodyAccumulator = 0;
         }
     }
     gestureData.bodyLastY = y;
-}
-
-function completeBodyStroke(touch) {
-    state.phaseCounters.bodyStrokes++;
-    if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-        triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
-        state.phaseCounters.bodyStrokes = 0; 
-    }
-}
-
-function processTap(touch) {
-    state.phaseCounters.taps++;
-    
-    let isBurst = false;
-    if (state.phaseCounters.taps > CONFIG.GOALS.TAP_BURST) {
-        if ((state.phaseCounters.taps - CONFIG.GOALS.TAP_BURST) % CONFIG.GOALS.TAP_BURST_FREQ === 0) {
-            isBurst = true;
-        }
-    }
-
-    // ЛОГИКА АУДИО ОПТИМИЗАЦИИ (Важно!)
-    // Звук играет только если Burst
-    if (isBurst) {
-        triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY, true);
-        spawnFloatingText("BURST!", touch.clientX, touch.clientY, 'text-burst');
-        tg.HapticFeedback.notificationOccurred('warning');
-        // Здесь звук вызовется внутри triggerSuccess
-    } else {
-        // Обычный тап - БЕЗ ЗВУКА, только легкая вибрация и очки
-        let pts = CONFIG.SCORE.TAP;
-        state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
-        updateComboUI();
-        const finalPts = Math.floor(pts * state.combo);
-        state.score += finalPts;
-        updateScoreUI();
-        
-        // Только вибрация
-        tg.HapticFeedback.impactOccurred('medium');
-    }
-    
-    squashCucumber();
-    const s = sprites.bottom;
-    s.visible = true; s.frame = 1;
-    setTimeout(() => { if(s.visible) s.frame = 0; }, 100);
-    setTimeout(() => { if (state.currentPhase !== PHASES.TAP) s.visible = false; }, 200);
 }
 
 function checkPenaltyTap(e, zoneName) {
@@ -596,30 +678,20 @@ function applyPenalty(touch, severity) {
     }
 }
 
-function triggerSuccess(type, x, y, isBurst = false) {
-    let pts = 0;
-    if (type === PHASES.HEAD) pts = CONFIG.SCORE.HEAD_SPIN;
-    if (type === PHASES.BODY) pts = CONFIG.SCORE.BODY_RUB;
-    if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
-    
-    if (isBurst) pts *= CONFIG.SCORE.BONUS_BURST_MULT;
-
-    // Звук играет здесь. Для тапов triggerSuccess вызывается только при Burst.
-    playSound(type);
-    
+// Общая функция начисления очков
+function triggerSuccessCommon(points, x, y) {
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
     updateComboUI();
     
-    const finalPts = Math.floor(pts * state.combo);
+    const finalPts = Math.floor(points * state.combo);
     state.score += finalPts;
     updateScoreUI();
 
     if (Math.random() > 0.6) spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
-    if (Math.random() > 0.7) tg.HapticFeedback.impactOccurred('medium');
+    tg.HapticFeedback.impactOccurred('medium');
 }
 
 function triggerBonus(points, text, cssClass, x, y) {
-    if(isNaN(points)) points = 50;
     state.score += points;
     updateScoreUI();
     spawnFloatingText(`${text} +${points}`, x, y, cssClass);
@@ -627,7 +699,7 @@ function triggerBonus(points, text, cssClass, x, y) {
     tg.HapticFeedback.notificationOccurred('success');
 }
 
-// === UI & FX ===
+// === 9. UI & HELPERS ===
 function updateScoreUI() {
     els.ui.scoreText.textContent = `${state.score} / ${CONFIG.WIN_SCORE}`;
     const pct = Math.min(100, (Math.max(0, state.score) / CONFIG.WIN_SCORE) * 100);
@@ -673,14 +745,16 @@ function spawnFloatingText(text, x, y, className) {
 }
 
 function finishGame() {
+    stopGameLoops();
     state.isPlaying = false;
-    clearInterval(window.secTimerId);
-    cancelAnimationFrame(window.loopId);
+    
+    saveBestScore();
+    loadBestScore();
+
     els.screens.game.classList.remove('active');
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
     
-    // Очистка
     sprites.head.visible = false; 
     sprites.body.visible = false; 
     sprites.bottom.visible = false;
@@ -688,14 +762,13 @@ function finishGame() {
 
     const isWin = state.score >= CONFIG.WIN_SCORE;
     
-    // Сброс фонов
     if (sprites.win.el) sprites.win.el.style.display = 'none';
     if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
     let activeResSprite = null;
 
     if (isWin) {
-        if (audioPool.win) audioPool.win.play().catch(()=>{});
+        audioSystem.play('win');
         activeResSprite = sprites.win;
         els.ui.resultTitle.textContent = "C-U-M-S-H-O-T!!!";
         els.ui.resultTitle.className = "win-text";
@@ -703,7 +776,7 @@ function finishGame() {
         if(els.ui.btnNext) els.ui.btnNext.classList.remove('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.add('hidden');
     } else {
-        if (audioPool.lose) audioPool.lose.play().catch(()=>{});
+        audioSystem.play('lose');
         activeResSprite = sprites.lose;
         els.ui.resultTitle.textContent = "Не получилось кончить...";
         els.ui.resultTitle.className = "lose-text";
@@ -723,12 +796,10 @@ function finishGame() {
             if (activeResSprite && activeResSprite.el) {
                 activeResSprite.frame += 0.2;
                 if (activeResSprite.frame >= activeResSprite.frames) activeResSprite.frame = 0;
-                
-                const currentFrame = Math.floor(activeResSprite.frame);
-                const pixelShift = -(currentFrame * 360);
-                activeResSprite.el.style.backgroundPosition = `${pixelShift}px 0px`;
+                const shift = -(Math.floor(activeResSprite.frame) * CONFIG.REF_WIDTH);
+                activeResSprite.el.style.backgroundPosition = `${shift}px 0px`;
             }
-            requestAnimationFrame(resultLoop);
+            resultAnimId = requestAnimationFrame(resultLoop);
         }
     };
     resultLoop();
