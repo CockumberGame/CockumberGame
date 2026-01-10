@@ -23,11 +23,11 @@ const CONFIG = {
     SCORE: {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
-        BODY_BONUS: 250, 
+        BODY_BONUS: 69, 
         TAP: 3,
         PENALTY_BASE: 15,
         MAX_COMBO: 2.0,
-        BONUS_GENTLE: 100,
+        BONUS_GENTLE: 13,
         BONUS_BURST_MULT: 2
     },
 
@@ -62,7 +62,7 @@ const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
 const PHASE_TEXTS = {
     [PHASES.HEAD]: "КРУТИ ГОЛОВКУ!",
     [PHASES.BODY]: "ТРИ СТВОЛ!",
-    [PHASES.TAP]: "ТАПАЙ ПО НИМ!",
+    [PHASES.TAP]: "СТУЧИ ПО ШАРАМ!",
     [PHASES.WAIT]: "ГОТОВЬСЯ..."
 };
 
@@ -532,7 +532,7 @@ function processBody(touch, target) {
 function completeBodyStroke(touch) {
     state.phaseCounters.bodyStrokes++;
     if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-        triggerBonus(CONFIG.SCORE.BODY_BONUS, "PERFECT STROKE!", 'text-perfect', 180, 320);
+        triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
         state.phaseCounters.bodyStrokes = 0; 
     }
 }
@@ -697,17 +697,17 @@ function finishGame() {
     if (isWin) {
         if (audioPool.win) audioPool.win.play().catch(()=>{});
         activeResSprite = sprites.win;
-        els.ui.resultTitle.textContent = "ПОБЕДА!";
+        els.ui.resultTitle.textContent = "C-U-M-S-H-O-T!!!";
         els.ui.resultTitle.className = "win-text";
-        els.ui.resultMsg.textContent = "Уровень пройден!";
+        els.ui.resultMsg.textContent = "ПОДРОЧЕНО!";
         if(els.ui.btnNext) els.ui.btnNext.classList.remove('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.add('hidden');
     } else {
         if (audioPool.lose) audioPool.lose.play().catch(()=>{});
         activeResSprite = sprites.lose;
-        els.ui.resultTitle.textContent = "ПОРАЖЕНИЕ";
+        els.ui.resultTitle.textContent = "Не получилось кончить...";
         els.ui.resultTitle.className = "lose-text";
-        els.ui.resultMsg.textContent = "Не хватило очков...";
+        els.ui.resultMsg.textContent = "Старайся лучше!";
         if(els.ui.btnNext) els.ui.btnNext.classList.add('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.remove('hidden');
     }
