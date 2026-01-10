@@ -52,7 +52,7 @@
                 <div class="menu-content">
                     <h1 class="game-title">COCKUMBER<br>RUBBER</h1>
                     <div class="highscore-box">
-                        <span class="label">РЕКОРД</span>
+                        <span class="label">НАДРОЧЕНО</span>
                         <span id="menu-best-score">0</span>
                     </div>
                     <button id="btn-start" class="pixel-btn">НАЧАТЬ</button>
@@ -131,21 +131,24 @@
     <div id="zone-tap-right" class="touch-zone"></div>
 </div>
 
-            <!-- ========================================== -->
+<!-- ========================================== -->
             <!-- ЭКРАН 3: РЕЗУЛЬТАТ -->
             <!-- ========================================== -->
             <div id="screen-result" class="screen">
                 <div class="result-content">
-                    <h2 id="result-title">ПОБЕДА!</h2>
+                    <!-- Заголовок будет меняться через JS -->
+                    <h2 id="result-title">РЕЗУЛЬТАТ</h2>
                     
                     <div class="final-score-box">
                         <p>СЧЁТ:</p>
                         <p id="result-score-val">0</p>
                     </div>
 
-                    <p id="result-message" class="result-msg">Огурец доволен.</p>
+                    <p id="result-message" class="result-msg">...</p>
                     
-                    <button id="btn-retry" class="pixel-btn">ЗАНОВО</button>
+                    <!-- Две разные кнопки -->
+                    <button id="btn-retry" class="pixel-btn">Попытатся еще раз...</button>
+                    <button id="btn-next" class="pixel-btn hidden">МНЕ НУЖНО ЕЩЕ! >></button>
                 </div>
             </div>
 

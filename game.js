@@ -96,7 +96,9 @@ const els = {
         phaseBarContainer: getEl('phase-timer-container'),
         resultScore: getEl('result-score-val'),
         resultTitle: getEl('result-title'),
-        resultMsg: getEl('result-message')
+        resultMsg: getEl('result-message'),
+        btnRetry: getEl('btn-retry'), // Добавили
+        btnNext: getEl('btn-next'),    // Добавили
     },
     zones: {
         head: getEl('zone-head'),
@@ -196,6 +198,12 @@ resizeGame();
 
 if (document.getElementById('btn-start')) document.getElementById('btn-start').onclick = startGame;
 if (document.getElementById('btn-retry')) document.getElementById('btn-retry').onclick = startGame;
+
+// Где мы назначаем btn-start, добавь это:
+if (getEl('btn-start')) getEl('btn-start').onclick = startGame;
+if (getEl('btn-retry')) getEl('btn-retry').onclick = startGame;
+// Пока кнопка "Дальше" просто перезапускает уровень (заглушка)
+if (getEl('btn-next')) getEl('btn-next').onclick = startGame;
 
 function startGame() {
     initAudio();
@@ -569,7 +577,7 @@ function finishGame() {
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
     
-    // Скрываем игровые спрайты
+    // Скрываем игровые спрайты и возвращаем базу
     sprites.head.visible = false;
     sprites.body.visible = false;
     sprites.bottom.visible = false;
@@ -577,30 +585,47 @@ function finishGame() {
 
     const isWin = state.score >= CONFIG.WIN_SCORE;
     
-    // Показываем Win/Lose спрайты
+    // Сброс видимости спрайтов результата перед выбором
     if (sprites.win.el) sprites.win.el.style.display = 'none';
     if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
     if (isWin) {
+        // --- ПОБЕДА ---
         if (audio.win) audio.win.play().catch(()=>{});
+        
+        if (sprites.win.el) sprites.win.el.style.display = 'block';
         sprites.win.visible = true;
-        sprites.win.el.style.display = 'block';
+        
+        // Текст
         els.ui.resultTitle.textContent = "ПОБЕДА!";
-        els.ui.resultTitle.style.color = "#55ff55";
-        els.ui.resultMsg.textContent = "Огурец доволен!";
+        els.ui.resultTitle.className = "win-text"; // Зеленый
+        els.ui.resultMsg.textContent = "Уровень пройден!";
+        
+        // Кнопки: Показываем ДАЛЬШЕ, прячем ЕЩЕ РАЗ
+        if(els.ui.btnNext) els.ui.btnNext.classList.remove('hidden');
+        if(els.ui.btnRetry) els.ui.btnRetry.classList.add('hidden');
+        
     } else {
+        // --- ПОРАЖЕНИЕ ---
         if (audio.lose) audio.lose.play().catch(()=>{});
+        
+        if (sprites.lose.el) sprites.lose.el.style.display = 'block';
         sprites.lose.visible = true;
-        sprites.lose.el.style.display = 'block';
-        els.ui.resultTitle.textContent = "ФИАСКО";
-        els.ui.resultTitle.style.color = "#ff5555";
-        els.ui.resultMsg.textContent = "Нужно больше стараться...";
+        
+        // Текст
+        els.ui.resultTitle.textContent = "ПОРАЖЕНИЕ";
+        els.ui.resultTitle.className = "lose-text"; // Красный
+        els.ui.resultMsg.textContent = "Не смог кончить...";
+        
+        // Кнопки: Прячем ДАЛЬШЕ, показываем ЕЩЕ РАЗ
+        if(els.ui.btnNext) els.ui.btnNext.classList.add('hidden');
+        if(els.ui.btnRetry) els.ui.btnRetry.classList.remove('hidden');
     }
 
-    // Запускаем луп для результата (чтобы анимация победы играла)
+    // Запускаем анимацию результата
     const resultLoop = () => {
         if (!state.isPlaying && els.screens.result.classList.contains('active')) {
-            renderSprites(); // Вызываем рендер для win/lose
+            renderSprites(); 
             requestAnimationFrame(resultLoop);
         }
     };
