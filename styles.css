@@ -1,200 +1,222 @@
-/* styles.css */
+:root {
+    --primary: #55ff55;
+    --danger: #ff5555;
+    --bg: #1b1b1b;
+}
 
-/* Общие стили */
 * {
-  box-sizing: border-box;
-  touch-action: none;
-  margin: 0;
-  padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none; /* Критично для игры жестами */
 }
 
 body {
-  background: #1b1b1b;
-  color: white;
-  font-family: 'Press Start 2P', monospace;
-  width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+    margin: 0;
+    padding: 0;
+    background: #000;
+    font-family: 'Press Start 2P', cursive;
+    color: white;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
-/* Контейнер приложения */
-#app {
-  width: 100%;
-  height: 100%;
-  position: relative;
-}
-
-/* Скрины (меню, игра, результат) */
-.screen {
-  display: none;
-  width: 100%;
-  height: 100%;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.screen.active {
-  display: flex;
-}
-
-/* ===================== МЕНЮ ===================== */
-#menu h1 {
-  text-align: center;
-  font-size: 32px;
-  margin-bottom: 50px;
-  line-height: 1.2;
-}
-
-button {
-  font-family: inherit;
-  font-size: 16px;
-  padding: 16px 40px;
-  border: none;
-  border-radius: 8px;
-  background: white;
-  color: black;
-  cursor: pointer;
-  margin: 10px 0;
-  transition: transform 0.1s ease, background 0.2s ease;
-}
-
-button:active {
-  transform: scale(0.95);
-  background: #ddd;
-}
-
-/* ===================== HUD ИГРЫ ===================== */
-
-#hud {
+/* Фон для десктопа */
+#desktop-bg {
     position: absolute;
-    top: 10px;
-    left: 5%;
-    width: 90%;
+    width: 100%;
+    height: 100%;
+    background: url('assets/bg_blur.jpg') center/cover;
+    filter: blur(10px) brightness(0.5);
+    z-index: 0;
+}
+
+/* Контейнер игры */
+#game-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    max-width: 500px; /* Ограничение ширины для десктопа */
+    max-height: 900px; /* Чтобы не был слишком длинным на вертикальных мониторах */
+    aspect-ratio: 9/16; /* Желаемые пропорции */
+    background: var(--bg);
+    z-index: 1;
+    overflow: hidden;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+}
+
+/* Адаптив для чисто мобильных (убираем ограничения) */
+@media (max-width: 500px) {
+    #game-container {
+        max-width: 100%;
+        max-height: 100%;
+        border-radius: 0;
+        aspect-ratio: auto;
+    }
+}
+
+.screen {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    background: rgba(27, 27, 27, 0.95);
+}
+
+.screen.active { display: flex; }
+
+/* МЕНЮ */
+.title {
+    font-size: 32px;
+    color: var(--primary);
+    text-align: center;
+    line-height: 1.5;
+    margin-bottom: 40px;
+    text-shadow: 4px 4px 0px #000;
+}
+
+.pixel-btn {
+    font-family: inherit;
+    font-size: 18px;
+    padding: 20px 40px;
+    background: white;
+    border: 4px solid #000;
+    box-shadow: 4px 4px 0px #888;
+    cursor: pointer;
+    margin-top: 20px;
+}
+.pixel-btn:active {
+    transform: translate(4px, 4px);
+    box-shadow: none;
+}
+
+/* ИГРА */
+#screen-game {
+    background: radial-gradient(circle at center, #2a2a2a, #000);
+}
+
+.hud {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 15px;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.timer-bar {
+    width: 100%;
+    height: 10px;
+    background: #333;
+    border: 2px solid white;
+}
+#timer-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--primary);
+    transition: width 0.1s linear;
+}
+
+.score-box {
+    font-size: 14px;
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    font-size: 14px;
-    flex-wrap: wrap;
 }
 
-#score {
-    font-size: 14px;
-    margin-top: 5px;
-    width: 100%;
-    text-align: center;
+#combo-display {
+    color: #ffcc00;
+    animation: pulse 0.5s infinite;
 }
 
-/* Остальные стили остаются без изменений */
-/* ===================== PLAYFIELD ===================== */
-#playfield {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  height: 100%;
-  position: relative;
-}
-
-#cucumber {
-  width: 70%;
-  max-width: 300px;
-  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.6));
-  border-radius: 12px;
-}
-
-#zone {
-  position: absolute;
-  width: 120px;
-  height: 120px;
-  border: 3px dashed white;
-  border-radius: 50%;
-  opacity: 0.8;
-  display: none;
-  touch-action: none;
-}
-
-/* ===================== РЕЗУЛЬТАТ ===================== */
-#result h2 {
-  text-align: center;
-  font-size: 24px;
-  margin-bottom: 40px;
-}
-
-#result button {
-  margin-top: 20px;
-}
-
-/* ===================== АДАПТИВНОСТЬ ===================== */
-@media (max-width: 500px) {
-  #cucumber {
-    max-width: 90%;
-  }
-
-  #zone {
-    width: 100px;
-    height: 100px;
-  }
-
-  button {
-    padding: 14px 28px;
-    font-size: 14px;
-  }
-
-  #hud {
-    font-size: 14px;
-  }
-}
-
-/* Добавляем в конец файла */
-
-/* Стили для разных типов зон */
-.zone-circle {
-    border: 3px dashed #ff5555;
-    border-radius: 50%;
-    background: rgba(255, 85, 85, 0.2);
-}
-
-.zone-vertical {
-    border: 3px dashed #55ff55;
-    border-radius: 10px;
-    background: rgba(85, 255, 85, 0.2);
-    width: 80px !important;
-    height: 150px !important;
-}
-
-.zone-tap {
-    border: 3px dashed #5555ff;
-    border-radius: 5px;
-    background: rgba(85, 85, 255, 0.2);
-    width: 100px !important;
-    height: 100px !important;
+/* ОГУРЕЦ И СЛОИ */
+#cucumber-wrapper {
+    position: relative;
+    width: 80%;
+    height: 80%;
     display: flex;
-    align-items: center;
     justify-content: center;
 }
 
-.zone-tap::after {
-    content: "TAP!";
-    color: white;
-    font-size: 14px;
-    font-weight: bold;
+.cucumber-base {
+    height: 100%;
+    width: auto;
+    object-fit: contain;
+    z-index: 1;
 }
 
-/* Анимации для зон */
-@keyframes pulse {
-    0% { opacity: 0.6; }
-    50% { opacity: 0.9; }
-    100% { opacity: 0.6; }
-}
-
-#zone {
+.anim-layer {
     position: absolute;
-    width: 120px;
-    height: 120px;
-    opacity: 0.8;
-    display: none;
-    touch-action: none;
-    animation: pulse 1.5s infinite;
-    transition: all 0.3s ease;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none; /* Пропускаем клики сквозь анимацию */
+    opacity: 0;
+    transition: opacity 0.2s;
+    background-size: cover; /* Или contain, зависит от спрайта */
 }
+
+/* Пример спрайтовой анимации */
+.anim-active {
+    opacity: 1;
+    /* Здесь подключаем animation-name в JS или CSS */
+}
+
+/* ЗОНЫ */
+.touch-zone {
+    position: absolute;
+    /* border: 1px dashed rgba(255,255,255,0.2); Отладка */
+    z-index: 5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Разметка зон в % от высоты контейнера огурца */
+#zone-head { top: 0; height: 25%; width: 100%; }
+#zone-body { top: 25%; height: 50%; width: 100%; }
+#zone-bottom { bottom: 0; height: 25%; width: 100%; }
+
+/* Экстра цели */
+.extra-target {
+    width: 60px;
+    height: 60px;
+    background: rgba(255, 215, 0, 0.3);
+    border: 2px solid gold;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.tap-target {
+    width: 80px;
+    height: 80px;
+    background: rgba(85, 85, 255, 0.3);
+    border: 2px solid #55f;
+    border-radius: 10px;
+    margin: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+}
+
+/* Утилиты */
+.hidden { display: none !important; }
+@keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }

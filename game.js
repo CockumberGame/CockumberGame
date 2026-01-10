@@ -1,438 +1,321 @@
-// Game.js
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// Элементы
-const menu = document.getElementById('menu');
-const game = document.getElementById('game');
-const result = document.getElementById('result');
-const startBtn = document.getElementById('startBtn');
-const retryBtn = document.getElementById('retryBtn');
-const timerEl = document.getElementById('timer');
-const progressFill = document.getElementById('progressFill');
-const cucumber = document.getElementById('cucumber');
-const zone = document.getElementById('zone');
-const resultText = document.getElementById('resultText');
-const finalScoreEl = document.getElementById('finalScore');
-const scoreEl = document.getElementById('score');
+// CONFIG
+const LEVEL_TIME = 60;
+const EXTRA_ZONE_START_TIME = 40; // Появится, когда таймер пройдет 40 сек (останется 20)
+const WIN_SCORE = 2000;
 
-// Константы игры
-const LEVEL_TIME = 30; // Уменьшаем до 30 секунд для динамики
-const CUCUMBERS = [
-    'assets/cucumber1.jpg',
-    'assets/cucumber2.jpg',
-    'assets/cucumber3.jpg',
-    'assets/cucumber4.jpg',
-    'assets/cucumber5.jpg'
-];
+const ZONES = {
+    HEAD: 'head',
+    BODY: 'body',
+    BOTTOM: 'bottom'
+};
 
-// Игровые переменные
-let currentLevel = 0;
-let timer;
-let timeLeft;
-let progress = 0;
-let score = 0;
-let zones = [];
-let currentZoneIndex = 0;
-let isGameActive = false;
+// STATE
+let state = {
+    isPlaying: false,
+    score: 0,
+    timeElapsed: 0,
+    combo: 1.0,
+    lastActionTime: 0,
+    activeZones: [] // Какие зоны сейчас требуют внимания (для подсветки)
+};
 
-// Типы зон и их настройки
-const ZONE_TYPES = {
-    CIRCLE: {
-        name: 'circle',
-        desc: 'КРУГИ',
-        className: 'zone-circle',
-        progressPerAction: 15, // Прогресс за один круг
-        scorePerAction: 50,
-        requiredActions: 3, // Нужно сделать 3 круговых движения
-        currentActions: 0
-    },
-    VERTICAL: {
-        name: 'vertical',
-        desc: 'ВВЕРХ-ВНИЗ',
-        className: 'zone-vertical',
-        progressPerAction: 10, // Прогресс за одно движение вверх-вниз
-        scorePerAction: 30,
-        requiredActions: 5,
-        currentActions: 0
-    },
-    TAP: {
-        name: 'tap',
-        desc: 'БЫСТРЫЙ ТАП',
-        className: 'zone-tap',
-        progressPerAction: 8, // Прогресс за один тап
-        scorePerAction: 20,
-        requiredActions: 10,
-        currentActions: 0
+let timerInterval;
+
+// DOM Elements
+const els = {
+    screens: document.querySelectorAll('.screen'),
+    score: document.getElementById('game-score'),
+    timerFill: document.getElementById('timer-fill'),
+    finalScore: document.getElementById('final-score'),
+    headZone: document.getElementById('zone-head'),
+    bodyZone: document.getElementById('zone-body'),
+    bottomZone: document.getElementById('zone-bottom'),
+    extraZone: document.getElementById('zone-head-extra'),
+    tapTargets: [document.getElementById('tap-target-1'), document.getElementById('tap-target-2')],
+    animLayers: {
+        head: document.getElementById('anim-head'),
+        body: document.getElementById('anim-body'),
+        bottom: document.getElementById('anim-bottom')
     }
 };
 
-// Начало игры
-startBtn.addEventListener('click', startGame);
-retryBtn.addEventListener('click', () => {
-    result.classList.remove('active');
-    menu.classList.add('active');
-    resetGame();
-});
+// === CORE ===
+
+function init() {
+    document.getElementById('btn-start').onclick = startGame;
+    document.getElementById('btn-retry').onclick = startGame;
+    
+    setupGestures();
+}
 
 function startGame() {
-    menu.classList.remove('active');
-    game.classList.add('active');
-    currentLevel = 0;
-    score = 0;
-    updateScore();
-    loadLevel();
+    showScreen('screen-game');
+    resetState();
+    gameLoop();
 }
 
-function resetGame() {
-    progress = 0;
-    score = 0;
-    updateProgress();
-    updateScore();
-    clearInterval(timer);
-}
-
-// Загрузка уровня
-function loadLevel() {
-    if (currentLevel >= CUCUMBERS.length) {
-        endGame(true);
-        return;
-    }
+function resetState() {
+    state.score = 0;
+    state.timeElapsed = 0;
+    state.combo = 1.0;
+    state.isPlaying = true;
+    updateUI();
     
-    cucumber.src = CUCUMBERS[currentLevel];
-    progress = 0;
-    currentZoneIndex = 0;
-    updateProgress();
-    generateZones();
-    startTimer();
-    spawnZone();
-    isGameActive = true;
-}
-
-// Генерация 8 зон для уровня
-function generateZones() {
-    zones = [];
-    const zoneCount = 8;
-    
-    for (let i = 0; i < zoneCount; i++) {
-        const zoneTypes = Object.values(ZONE_TYPES);
-        const zoneType = zoneTypes[Math.floor(Math.random() * zoneTypes.length)];
+    // Сброс таймера
+    clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        state.timeElapsed++;
+        updateTimer();
+        checkEvents(); // Проверка на появление экстра зон
         
-        // Позиционируем зоны в зависимости от типа
-        let x, y;
-        
-        switch(zoneType.name) {
-            case 'circle': // Верхняя часть огурца
-                x = 40 + Math.random() * 30;
-                y = 15 + Math.random() * 15;
-                break;
-            case 'vertical': // Середина огурца
-                x = 45 + Math.random() * 20;
-                y = 35 + Math.random() * 30;
-                break;
-            case 'tap': // Нижняя часть огурца
-                x = 35 + Math.random() * 30;
-                y = 65 + Math.random() * 20;
-                break;
-        }
-        
-        zones.push({
-            x,
-            y,
-            type: zoneType,
-            completed: false
-        });
-    }
-}
-
-// Показать текущую зону
-function spawnZone() {
-    if (currentZoneIndex >= zones.length) {
-        finishLevel();
-        return;
-    }
-    
-    const zoneData = zones[currentZoneIndex];
-    zone.style.left = zoneData.x + '%';
-    zone.style.top = zoneData.y + '%';
-    
-    // Устанавливаем класс зоны
-    zone.className = '';
-    zone.classList.add(zoneData.type.className);
-    
-    // Сбрасываем счетчик действий для зоны
-    zoneData.type.currentActions = 0;
-    
-    zone.style.display = 'block';
-    updateZoneInstructions(zoneData.type);
-}
-
-// Обновляем инструкции на экране
-function updateZoneInstructions(zoneType) {
-    const hud = document.getElementById('hud');
-    let instructionEl = document.getElementById('instruction');
-    
-    if (!instructionEl) {
-        instructionEl = document.createElement('div');
-        instructionEl.id = 'instruction';
-        instructionEl.style.cssText = `
-            position: absolute;
-            top: 50px;
-            left: 0;
-            width: 100%;
-            text-align: center;
-            font-size: 14px;
-            color: white;
-            text-shadow: 1px 1px 2px black;
-        `;
-        hud.appendChild(instructionEl);
-    }
-    
-    instructionEl.textContent = `${zoneType.desc}: ${zoneType.currentActions}/${zoneType.requiredActions}`;
-}
-
-// Таймер
-function startTimer() {
-    timeLeft = LEVEL_TIME;
-    timerEl.textContent = timeLeft;
-    clearInterval(timer);
-    timer = setInterval(() => {
-        timeLeft--;
-        timerEl.textContent = timeLeft;
-        if (timeLeft <= 0) {
-            clearInterval(timer);
-            endLevel(false);
+        if (state.timeElapsed >= LEVEL_TIME) {
+            endGame();
         }
     }, 1000);
+
+    // Логика рандомного появления целей для тапа
+    spawnTapTargets();
 }
 
-// Обновление прогресса
-function updateProgress() {
-    progressFill.style.width = progress + '%';
+function showScreen(id) {
+    els.screens.forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+}
+
+function endGame() {
+    state.isPlaying = false;
+    clearInterval(timerInterval);
     
-    // Цвет прогресс-бара меняется в зависимости от прогресса
-    if (progress < 30) {
-        progressFill.style.background = '#ff5555';
-    } else if (progress < 70) {
-        progressFill.style.background = '#ffaa00';
+    const isWin = state.score >= WIN_SCORE;
+    const resultTitle = document.getElementById('result-title');
+    const resultMsg = document.getElementById('result-msg');
+    const nextBtn = document.getElementById('btn-next');
+    
+    els.finalScore.textContent = Math.floor(state.score);
+    
+    if (isWin) {
+        resultTitle.textContent = "ПОБЕДА!";
+        resultTitle.style.color = "#55ff55";
+        resultMsg.textContent = "Огурец отлично натерт!";
+        nextBtn.classList.remove('hidden');
     } else {
-        progressFill.style.background = '#55ff55';
+        resultTitle.textContent = "ПОРАЖЕНИЕ";
+        resultTitle.style.color = "#ff5555";
+        resultMsg.textContent = `Нужно ${WIN_SCORE} очков`;
+        nextBtn.classList.add('hidden');
     }
+    
+    showScreen('screen-result');
 }
 
-// Обновление счёта
-function updateScore() {
-    scoreEl.textContent = `Очки: ${score}`;
+// === GAMEPLAY LOGIC ===
+
+function addScore(basePoints, x, y) {
+    // Комбо сбрасывается если долго не трогал (2 сек)
+    if (Date.now() - state.lastActionTime > 2000) state.combo = 1.0;
+    state.lastActionTime = Date.now();
     
-    // Цвет счёта меняется в зависимости от значения
-    if (score < 0) {
-        scoreEl.style.color = '#ff5555';
-    } else if (score < 500) {
-        scoreEl.style.color = '#ffaa00';
+    // Увеличение комбо (макс x3)
+    state.combo = Math.min(state.combo + 0.05, 3.0);
+    
+    const points = basePoints * state.combo;
+    state.score += points;
+    updateUI();
+    
+    // Визуальный эффект (по желанию можно добавить всплывающие цифры)
+    showFloatingText(`+${Math.floor(points)}`, x, y);
+}
+
+function updateUI() {
+    els.score.textContent = Math.floor(state.score);
+    const comboEl = document.getElementById('combo-display');
+    if (state.combo > 1.2) {
+        comboEl.classList.remove('hidden');
+        comboEl.textContent = `x${state.combo.toFixed(1)}`;
     } else {
-        scoreEl.style.color = '#55ff55';
+        comboEl.classList.add('hidden');
     }
 }
 
-// Переменные для отслеживания жестов
-let touchStartY = 0;
-let touchStartX = 0;
-let lastTapTime = 0;
-let tapCount = 0;
-let isTouchingZone = false;
+function updateTimer() {
+    const pct = 100 - ((state.timeElapsed / LEVEL_TIME) * 100);
+    els.timerFill.style.width = `${pct}%`;
+    if(pct < 30) els.timerFill.style.background = '#ff5555';
+    else els.timerFill.style.background = '#55ff55';
+}
 
-// Обработка касаний
-zone.addEventListener('touchstart', handleTouchStart);
-zone.addEventListener('touchmove', handleTouchMove);
-zone.addEventListener('touchend', handleTouchEnd);
-
-function handleTouchStart(e) {
-    e.preventDefault();
-    if (!isGameActive) return;
-    
-    isTouchingZone = true;
-    const touch = e.touches[0];
-    touchStartY = touch.clientY;
-    touchStartX = touch.clientX;
-    
-    const currentZoneType = zones[currentZoneIndex].type;
-    
-    // Для тапа - увеличиваем счетчик при каждом касании
-    if (currentZoneType.name === 'tap') {
-        const currentTime = new Date().getTime();
-        const timeDiff = currentTime - lastTapTime;
-        
-        // Если тапы быстрые (менее 300ms между ними)
-        if (timeDiff < 300) {
-            tapCount++;
-            if (tapCount >= 2) { // Двойной/быстрый тап
-                processZoneAction(currentZoneType);
-                tapCount = 0;
-            }
-        } else {
-            tapCount = 1;
-        }
-        
-        lastTapTime = currentTime;
-        navigator.vibrate(10); // Короткая вибрация
+function checkEvents() {
+    // Появление экстра зоны на голове после 40 сек (когда timeElapsed > 40)
+    // Либо если прошло 2/3 времени
+    if (state.timeElapsed === EXTRA_ZONE_START_TIME) {
+        els.extraZone.classList.remove('hidden');
+        tg.HapticFeedback.notificationOccurred('warning');
     }
 }
 
-function handleTouchMove(e) {
-    e.preventDefault();
-    if (!isTouchingZone || !isGameActive) return;
+// === GESTURE HANDLERS ===
+
+function setupGestures() {
     
-    const touch = e.touches[0];
-    const currentZoneType = zones[currentZoneIndex].type;
+    // 1. HEAD: CIRCULAR MOTION
+    let lastAngle = null;
+    let accumulatedAngle = 0;
     
-    // Для вертикальной зоны - считаем движения вверх-вниз
-    if (currentZoneType.name === 'vertical') {
-        const deltaY = Math.abs(touch.clientY - touchStartY);
+    els.headZone.addEventListener('touchmove', (e) => {
+        if (!state.isPlaying) return;
+        e.preventDefault(); // Блочим скролл
         
-        // Если движение достаточно большое
-        if (deltaY > 50) {
-            processZoneAction(currentZoneType);
-            touchStartY = touch.clientY; // Сбрасываем точку отсчета
-            navigator.vibrate(20);
-        }
-    }
-    // Для круговой зоны - определяем круговое движение
-    else if (currentZoneType.name === 'circle') {
-        const centerX = zone.offsetLeft + zone.offsetWidth / 2;
-        const centerY = zone.offsetTop + zone.offsetHeight / 2;
+        const touch = e.touches[0];
+        const rect = els.headZone.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        
+        // Вычисляем угол в радианах
         const angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
         
-        // Простая логика для определения кругового движения
-        // В реальной игре нужно отслеживать полный круг
-        const distance = Math.sqrt(
-            Math.pow(touch.clientX - centerX, 2) + 
-            Math.pow(touch.clientY - centerY, 2)
-        );
-        
-        if (distance > 20) { // Если движение достаточно далеко от центра
-            processZoneAction(currentZoneType);
-            navigator.vibrate(15);
+        if (lastAngle !== null) {
+            let delta = angle - lastAngle;
+            // Корректировка перехода через 180/-180 градусов
+            if (delta > Math.PI) delta -= 2 * Math.PI;
+            if (delta < -Math.PI) delta += 2 * Math.PI;
+            
+            accumulatedAngle += Math.abs(delta);
+            
+            // Если накрутили полный оборот (или близко к тому, ~3 радиана)
+            if (accumulatedAngle > 1.5) { 
+                addScore(10, touch.clientX, touch.clientY);
+                accumulatedAngle = 0;
+                tg.HapticFeedback.impactOccurred('light');
+                triggerAnimation('head');
+            }
         }
-    }
-}
+        lastAngle = angle;
+    });
+    
+    els.headZone.addEventListener('touchend', () => { lastAngle = null; });
 
-function handleTouchEnd() {
-    isTouchingZone = false;
-}
-
-// Обработка действия в зоне
-function processZoneAction(zoneType) {
-    if (!isGameActive) return;
-    
-    zoneType.currentActions++;
-    
-    // Обновляем прогресс
-    progress = Math.min(100, progress + zoneType.progressPerAction);
-    updateProgress();
-    
-    // Добавляем очки
-    score += zoneType.scorePerAction;
-    updateScore();
-    
-    // Обновляем инструкции
-    updateZoneInstructions(zoneType);
-    
-    // Если зона завершена
-    if (zoneType.currentActions >= zoneType.requiredActions) {
-        completeCurrentZone();
-    }
-}
-
-// Завершение текущей зоны
-function completeCurrentZone() {
-    zones[currentZoneIndex].completed = true;
-    
-    // Бонус за быстрый проход
-    const timeBonus = Math.floor(timeLeft * 3);
-    score += timeBonus;
-    updateScore();
-    
-    // Переходим к следующей зоне
-    currentZoneIndex++;
-    
-    // Если все зоны пройдены
-    if (currentZoneIndex >= zones.length) {
-        progress = 100;
-        updateProgress();
-        setTimeout(() => finishLevel(), 500);
-    } else {
-        spawnZone();
-    }
-}
-
-// Завершение уровня
-function finishLevel() {
-    clearInterval(timer);
-    
-    // Если набрано достаточно очков для перехода
-    if (score >= 800) {
-        currentLevel++;
+    // 1.1 HEAD EXTRA (UP-DOWN)
+    let lastExtraY = 0;
+    els.extraZone.addEventListener('touchstart', (e) => {
+         lastExtraY = e.touches[0].clientY;
+    });
+    els.extraZone.addEventListener('touchmove', (e) => {
+        if(els.extraZone.classList.contains('hidden')) return;
+        e.stopPropagation(); // Чтобы не срабатывал обычный круг
         
-        // Анимация перехода
-        zone.style.display = 'none';
-        game.classList.add('level-transition');
+        const y = e.touches[0].clientY;
+        const delta = Math.abs(y - lastExtraY);
         
-        setTimeout(() => {
-            game.classList.remove('level-transition');
-            loadLevel();
-        }, 1000);
+        if (delta > 20) { // Резкое движение
+            addScore(100, e.touches[0].clientX, e.touches[0].clientY); // Много очков!
+            state.combo += 0.15; // Бонус к комбо
+            lastExtraY = y;
+            tg.HapticFeedback.impactOccurred('heavy');
+        }
+    });
+
+    // 2. BODY: VERTICAL RUB (Long strokes)
+    let lastBodyY = 0;
+    els.bodyZone.addEventListener('touchstart', (e) => {
+        lastBodyY = e.touches[0].clientY;
+    });
+    
+    els.bodyZone.addEventListener('touchmove', (e) => {
+        if (!state.isPlaying) return;
+        const y = e.touches[0].clientY;
+        const delta = Math.abs(y - lastBodyY);
+        
+        // Длинный свайп
+        if (delta > 30) {
+            addScore(15, e.touches[0].clientX, e.touches[0].clientY);
+            state.combo += 0.1;
+            lastBodyY = y;
+            triggerAnimation('body');
+            
+            // Вибрация реже, чтобы не гудело постоянно
+            if (Math.random() > 0.5) tg.HapticFeedback.impactOccurred('medium');
+        }
+    });
+
+    // 3. BOTTOM: TAPPING (Multi-touch)
+    // Вешаем обработчики на сами цели (tap targets)
+    els.tapTargets.forEach(target => {
+        target.addEventListener('touchstart', (e) => {
+            if (!state.isPlaying || target.classList.contains('hidden')) return;
+            e.preventDefault();
+            
+            // Проверка комбо (если оба видны и нажаты почти одновременно)
+            // Упростим: просто даем очки за тап
+            addScore(10, e.touches[0].clientX, e.touches[0].clientY);
+            tg.HapticFeedback.impactOccurred('light');
+            triggerAnimation('bottom');
+            
+            // Скрыть после тапа и запустить таймер нового появления
+            target.classList.add('hidden');
+            setTimeout(spawnTapTargets, Math.random() * 2000 + 500);
+        });
+    });
+}
+
+function spawnTapTargets() {
+    if(!state.isPlaying) return;
+    
+    // Шанс двойного спавна
+    const isDouble = Math.random() > 0.7;
+    
+    if (isDouble) {
+        els.tapTargets[0].classList.remove('hidden');
+        els.tapTargets[1].classList.remove('hidden');
     } else {
-        endLevel(false);
+        // Рандомно левый или правый
+        const idx = Math.random() > 0.5 ? 0 : 1;
+        els.tapTargets[idx].classList.remove('hidden');
     }
 }
 
-// Конец уровня (успех/провал)
-function endLevel(success) {
-    isGameActive = false;
-    clearInterval(timer);
-    game.classList.remove('active');
-    result.classList.add('active');
+// === VISUALS ===
+
+function triggerAnimation(part) {
+    const el = els.animLayers[part];
+    el.style.opacity = 1;
     
-    if (success) {
-        resultText.textContent = 'Уровень пройден!';
-    } else {
-        resultText.textContent = 'Попробуй ещё раз!';
-    }
-    
-    finalScoreEl.textContent = `Итоговые очки: ${score}`;
+    // Сброс анимации через короткое время
+    clearTimeout(el.animTimeout);
+    el.animTimeout = setTimeout(() => {
+        el.style.opacity = 0;
+    }, 200);
 }
 
-// Конец игры (все уровни пройдены)
-function endGame(win) {
-    isGameActive = false;
-    clearInterval(timer);
-    game.classList.remove('active');
-    result.classList.add('active');
-    
-    if (win) {
-        resultText.textContent = 'ПОБЕДА! Все огурцы затерты! 🏆';
-    } else {
-        resultText.textContent = 'Игра окончена';
-    }
-    
-    finalScoreEl.textContent = `Финальный счёт: ${score}`;
+function showFloatingText(text, x, y) {
+    const el = document.createElement('div');
+    el.textContent = text;
+    el.style.cssText = `
+        position: fixed;
+        left: ${x}px;
+        top: ${y}px;
+        color: #fff;
+        font-weight: bold;
+        font-size: 20px;
+        pointer-events: none;
+        animation: floatUp 0.8s ease-out forwards;
+        z-index: 1000;
+        text-shadow: 2px 2px 0 #000;
+    `;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 800);
 }
 
-// Обновляем CSS для переходов между уровнями
-const style = document.createElement('style');
-style.textContent = `
-    .level-transition {
-        animation: flash 0.5s ease;
-    }
-    
-    @keyframes flash {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-`;
-document.head.appendChild(style);
+// CSS для всплывающего текста добавим динамически
+const styleSheet = document.createElement("style");
+styleSheet.innerText = `
+@keyframes floatUp {
+    0% { transform: translateY(0) scale(1); opacity: 1; }
+    100% { transform: translateY(-50px) scale(1.5); opacity: 0; }
+}`;
+document.head.appendChild(styleSheet);
 
-// Инициализация
-resetGame();
+init();
