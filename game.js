@@ -3,7 +3,7 @@ window.onerror = function(msg, url, line) {
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v7.0 (INSTANT AUDIO & PERFECT STROKE FIX)
+   COCKUMBER RUBBER - CORE v8.0 (PERFECT PHASE & COMBO DECAY)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -23,10 +23,11 @@ const CONFIG = {
     SCORE: {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
-        BODY_BONUS: 100,
+        // Бонус теперь дается в конце фазы, он должен быть жирным
+        BODY_PHASE_BONUS: 300, 
         TAP: 3,
         PENALTY_BASE: 10,
-        MAX_COMBO: 1.5
+        MAX_COMBO: 2.0 // Поднял макс комбо, так как оно теперь падает
     },
 
     FRAMES: {
@@ -38,14 +39,13 @@ const CONFIG = {
     THRESHOLDS: {
         HEAD: 0.6, 
         BODY: 20, 
-        // 70% от высоты зоны (260px * 0.7 = ~180px)
-        // Нужно провести 180px не отпуская, чтобы получить бонус
-        BODY_PERFECT_RATIO: 0.7 
+        // Если движение меньше 50% высоты, оно считается "Слабым" и ломает Перфект
+        BODY_MIN_PERFECT: 0.5 
     },
 
-    PHASE_MIN_TIME: 3000,
-    PHASE_MAX_TIME: 6000,
-    PAUSE_TIME: 1000
+    PHASE_MIN_TIME: 4000, // Чуть дольше фазы, чтобы успеть натереть
+    PHASE_MAX_TIME: 7000,
+    PAUSE_TIME: 800
 };
 
 const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
@@ -58,13 +58,15 @@ let state = {
     currentPhase: PHASES.WAIT,
     phaseEndTime: 0,
     penaltyMultiplier: 1,
-    combo: 1.0
+    combo: 1.0,
+    lastActionTime: 0, // Для падения комбо
+    
+    // Данные для Идеальной Фазы
+    isPerfectPhaseEligible: false,
+    bodyStrokesCount: 0
 };
 
-// Звуки
 const audio = { head: [], body: [], tap: [], win: null, lose: null };
-
-// Спрайты
 let sprites = {
     head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
@@ -94,6 +96,7 @@ const els = {
         resultMsg: getEl('result-message'),
         btnRetry: getEl('btn-retry'),
         btnNext: getEl('btn-next'),
+        combo: getEl('combo-display') // Нужно убедиться, что в HTML это есть, или создать
     },
     zones: {
         head: getEl('zone-head'),
@@ -140,7 +143,6 @@ function initSprites() {
             el.className = 'anim-sprite';
             world.appendChild(el);
         }
-        
         el.style.position = 'absolute';
         el.style.top = '0';
         el.style.left = '0';
@@ -208,6 +210,7 @@ function startGame() {
     state.isPlaying = true;
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + 1000;
+    state.lastActionTime = Date.now();
 
     els.screens.menu.classList.remove('active');
     els.screens.result.classList.remove('active');
@@ -237,22 +240,62 @@ function gameLoop() {
     const now = Date.now();
     renderSprites();
     
+    // Проверка смены фазы
     if (now >= state.phaseEndTime) {
-        state.currentPhase === PHASES.WAIT ? pickNewPhase() : enterWaitPhase();
+        if (state.currentPhase === PHASES.WAIT) {
+            pickNewPhase();
+        } else {
+            // ВАЖНО: Мы уходим из активной фазы. Проверяем бонусы.
+            checkPhaseBonus();
+            enterWaitPhase();
+        }
     }
 
+    // COMBO DECAY (Падение комбо)
+    // Если 1.5 сек не было действий - комбо падает
+    if (now - state.lastActionTime > 1500) {
+        if (state.combo > 1.0) {
+            state.combo = Math.max(1.0, state.combo - 0.01);
+            updateComboUI();
+        }
+    }
+
+    // Рендер бара фазы
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const totalTime = state.phaseTotalTime;
         const pct = Math.max(0, (timeLeft / totalTime) * 100);
         els.ui.phaseBarFill.style.width = `${pct}%`;
+        
+        // Визуализация "Perfect Phase"
+        // Если фаза тела и мы идем на перфект - бар золотой
+        if (state.currentPhase === PHASES.BODY && state.isPerfectPhaseEligible) {
+             els.ui.phaseBarFill.style.backgroundColor = '#ffff00'; // Gold
+             els.ui.phaseBarFill.style.boxShadow = '0 0 10px #ffff00';
+        } else {
+             els.ui.phaseBarFill.style.backgroundColor = ''; // Reset to default (purple)
+             els.ui.phaseBarFill.style.boxShadow = '';
+        }
+
     } else {
         els.ui.phaseBarFill.style.width = '0%';
     }
+    
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// === 5. RENDER & SPRITES ===
+function updateComboUI() {
+    if (els.ui.combo) {
+        if (state.combo > 1.1) {
+            els.ui.combo.textContent = `x${state.combo.toFixed(1)}`;
+            els.ui.combo.classList.remove('hidden');
+        } else {
+            els.ui.combo.classList.add('hidden');
+        }
+    }
+}
+
+// === 5. SPRITE RENDER ===
 function renderSprites() {
     if (els.screens.result.classList.contains('active')) {
         ['win', 'lose'].forEach(name => {
@@ -309,6 +352,8 @@ function mapSpriteToPosition(name, percent) {
     s.frame = targetFrame;
 }
 
+// === PHASE LOGIC ===
+
 function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
@@ -322,9 +367,18 @@ function pickNewPhase() {
     const phases = [PHASES.HEAD, PHASES.BODY, PHASES.TAP];
     let next = phases[Math.floor(Math.random() * phases.length)];
     if (next === state.lastPhase && Math.random() > 0.4) next = phases.find(p => p !== state.lastPhase);
+    
     state.lastPhase = next;
     state.currentPhase = next;
     
+    // Инициализация данных фазы
+    if (next === PHASES.BODY) {
+        state.isPerfectPhaseEligible = true; // По умолчанию считаем, что игрок молодец
+        state.bodyStrokesCount = 0;
+    } else {
+        state.isPerfectPhaseEligible = false;
+    }
+
     tg.HapticFeedback.impactOccurred('light');
 
     const duration = CONFIG.PHASE_MIN_TIME + Math.random() * (CONFIG.PHASE_MAX_TIME - CONFIG.PHASE_MIN_TIME);
@@ -339,14 +393,24 @@ function pickNewPhase() {
     }
 }
 
-// === IMPROVED SOUND LOGIC ===
+// Проверка бонусов при ВЫХОДЕ из фазы
+function checkPhaseBonus() {
+    // Бонус только для фазы тела
+    if (state.currentPhase === PHASES.BODY) {
+        // Условия:
+        // 1. Статус Eligible (не сбит короткими движениями)
+        // 2. Сделано минимум 3 движения (чтобы нельзя было просто ждать)
+        if (state.isPerfectPhaseEligible && state.bodyStrokesCount >= 3) {
+            triggerSuccess(PHASES.BODY, 180, 320, true);
+        }
+    }
+}
+
 function playZoneSound(type) {
     let pool = audio[type];
     if (!pool || pool.length === 0) return;
 
-    // Для ТАПОВ разрешаем наложение звуков (Machine Gun Effect)
     if (type === PHASES.TAP) {
-        // Клонируем ноду для полифонии, если все заняты
         const freeSnd = pool.find(s => s.paused) || pool[0].cloneNode();
         freeSnd.currentTime = 0;
         freeSnd.volume = 1.0;
@@ -354,15 +418,11 @@ function playZoneSound(type) {
         return;
     }
 
-    // Для остальных зон - играем, только если есть свободный слот, 
-    // или если прошло достаточно времени (чтобы не было каши)
     if (pool.some(snd => !snd.paused)) return;
-
     const snd = pool[Math.floor(Math.random() * pool.length)];
     snd.currentTime = 0;
     snd.play().catch(()=>{});
 }
-
 
 // === 6. INPUT HANDLING ===
 
@@ -389,10 +449,7 @@ window.addEventListener('touchend', () => {
 let gestureData = {
     headAngle: null, headAccumulator: 0, accFrameHead: 0,
     bodyLastY: null, bodyAccumulator: 0,
-    // Бонусные данные
-    strokeStartY: 0,
-    strokeDistance: 0,
-    strokeDir: 0 // 1 - вниз, -1 - вверх
+    strokeStartY: 0, strokeMinY: 9999, strokeMaxY: 0
 };
 
 function startBodyStroke(e) {
@@ -402,22 +459,47 @@ function startBodyStroke(e) {
     }
     const touch = e.touches[0];
     gestureData.strokeStartY = touch.clientY;
-    gestureData.strokeDistance = 0;
-    gestureData.strokeDir = 0;
+    gestureData.strokeMinY = touch.clientY;
+    gestureData.strokeMaxY = touch.clientY;
 }
 
 function endBodyStroke(e) {
-    // Сброс
-    gestureData.strokeDistance = 0;
+    if (state.currentPhase !== PHASES.BODY) return;
+    
+    const dist = gestureData.strokeMaxY - gestureData.strokeMinY;
+    const zoneH = els.zones.body.offsetHeight;
+    
+    // ВАЛИДАЦИЯ ДВИЖЕНИЯ
+    // Игнорируем микро-касания (меньше 10% зоны)
+    if (dist < zoneH * 0.1) return;
+
+    state.bodyStrokesCount++;
+
+    // Если движение короче 50% зоны - это ЛЕНИВОЕ движение
+    if (dist < zoneH * CONFIG.THRESHOLDS.BODY_MIN_PERFECT) {
+        if (state.isPerfectPhaseEligible) {
+            // ЛОМАЕМ ПЕРФЕКТ
+            state.isPerfectPhaseEligible = false;
+            // Показываем игроку, что он облажался
+            const t = e.changedTouches[0];
+            spawnFloatingText("СЛАБО...", t.clientX, t.clientY, 'text-penalty');
+            // Окрашиваем бар в серый (визуальный фидбек через CSS можно добавить, но пока просто логика)
+        }
+    }
 }
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     const touch = e.touches[0];
+    
     if (state.currentPhase !== zoneName) {
         applyPenalty(touch, 1);
         return;
     }
+
+    // Обновляем время действия для комбо
+    state.lastActionTime = Date.now();
+
     switch (zoneName) {
         case PHASES.HEAD: processHead(touch, e.currentTarget); break;
         case PHASES.BODY: processBody(touch, e.currentTarget); break;
@@ -458,32 +540,9 @@ function processBody(touch, target) {
     let percent = (y - rect.top) / rect.height;
     mapSpriteToPosition('body', percent);
     
-    // --- PERFECT STROKE LOGIC (V7) ---
-    if (gestureData.bodyLastY !== null) {
-        const delta = y - gestureData.bodyLastY;
-        const currentDir = delta > 0 ? 1 : -1;
-
-        if (Math.abs(delta) > 1) { // Игнорируем микро-дрожание
-            if (gestureData.strokeDir !== 0 && currentDir !== gestureData.strokeDir) {
-                // Смена направления - сбрасываем бонус
-                gestureData.strokeStartY = y;
-                gestureData.strokeDistance = 0;
-            }
-            gestureData.strokeDir = currentDir;
-            gestureData.strokeDistance = Math.abs(y - gestureData.strokeStartY);
-
-            // Проверка на бонус (70% от высоты зоны)
-            const requiredDist = rect.height * CONFIG.THRESHOLDS.BODY_PERFECT_RATIO;
-            
-            if (gestureData.strokeDistance > requiredDist) {
-                triggerSuccess(PHASES.BODY, 180, 320, true);
-                // Сбрасываем, чтобы не спамить бонусами на одном движении
-                gestureData.strokeStartY = y; 
-                gestureData.strokeDistance = 0;
-            }
-        }
-    }
-    // ---------------------------------
+    // Трекинг мин/макс для валидации
+    if (y < gestureData.strokeMinY) gestureData.strokeMinY = y;
+    if (y > gestureData.strokeMaxY) gestureData.strokeMaxY = y;
 
     if (gestureData.bodyLastY !== null) {
         const delta = Math.abs(y - gestureData.bodyLastY);
@@ -517,6 +576,8 @@ function checkPenaltyTap(e, zoneName) {
 
 function applyPenalty(touch, severity) {
     state.penaltyMultiplier += 0.1;
+    state.combo = 1.0; // Сброс комбо при ошибке
+    updateComboUI();
     const penalty = Math.floor(CONFIG.SCORE.PENALTY_BASE * severity * state.penaltyMultiplier);
     
     if (Math.random() > 0.7) { 
@@ -532,9 +593,8 @@ function triggerSuccess(type, x, y, isBonus = false) {
     let pts = 0;
     
     if (isBonus) {
-        pts = CONFIG.SCORE.BODY_BONUS;
-        // JUICE: Тряска и мощная вибрация
-        spawnFloatingText(`PERFECT! +${pts}`, 180, 320, 'text-perfect');
+        pts = CONFIG.SCORE.BODY_PHASE_BONUS; // Используем бонус фазы
+        spawnFloatingText(`PERFECT PHASE! +${pts}`, 180, 320, 'text-perfect');
         tg.HapticFeedback.notificationOccurred('success');
         shakeScreen();
     } else {
@@ -542,16 +602,35 @@ function triggerSuccess(type, x, y, isBonus = false) {
         if (type === PHASES.BODY) pts = CONFIG.SCORE.BODY_RUB;
         if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
         playZoneSound(type);
-        // JUICE: Обычная вибрация
         tg.HapticFeedback.impactOccurred('medium');
     }
     
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
+    updateComboUI();
+    
     const finalPts = Math.floor(pts * state.combo);
     state.score += finalPts;
     updateScoreUI();
 
     if (!isBonus && Math.random() > 0.6) spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
+}
+
+// === UI UPDATES ===
+function updateScoreUI() {
+    els.ui.scoreText.textContent = `${state.score} / ${CONFIG.WIN_SCORE}`;
+    const pct = Math.min(100, (state.score / CONFIG.WIN_SCORE) * 100);
+    els.ui.progressFill.style.width = `${pct}%`;
+}
+
+function updateComboUI() {
+    if (els.ui.combo) {
+        if (state.combo > 1.1) {
+            els.ui.combo.textContent = `x${state.combo.toFixed(1)}`;
+            els.ui.combo.classList.remove('hidden');
+        } else {
+            els.ui.combo.classList.add('hidden');
+        }
+    }
 }
 
 // === EFFECTS ===
@@ -570,12 +649,6 @@ function squashCucumber() {
     setTimeout(() => {
         if(els.baseCucumber) els.baseCucumber.classList.remove('squash-effect');
     }, 100);
-}
-
-function updateScoreUI() {
-    els.ui.scoreText.textContent = `${state.score} / ${CONFIG.WIN_SCORE}`;
-    const pct = Math.min(100, (state.score / CONFIG.WIN_SCORE) * 100);
-    els.ui.progressFill.style.width = `${pct}%`;
 }
 
 function spawnFloatingText(text, x, y, className) {
