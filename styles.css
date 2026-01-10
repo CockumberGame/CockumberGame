@@ -362,3 +362,40 @@ body {
     80% { transform: scale(1.1) translateY(-20px); opacity: 1; } /* Висит и чуть всплывает */
     100% { transform: scale(1.5) translateY(-100px); opacity: 0; } /* Исчезает */
 }
+
+/* Добавь это в конец styles.css */
+
+/* Бонус для головы */
+.text-gentle {
+    font-size: 24px !important;
+    color: #ff69b4; /* Hot Pink */
+    text-shadow: 0 0 10px #ff69b4;
+    z-index: 50;
+    animation: floatUp 1s ease-out forwards;
+}
+
+/* Бонус для тапов */
+.text-burst {
+    font-size: 28px !important;
+    color: #fff;
+    -webkit-text-stroke: 1px #ff0000;
+    text-shadow: 2px 2px 0px #ff0000;
+    transform: rotate(-15deg);
+    animation: burst-pop 0.3s ease-out forwards;
+    z-index: 60;
+}
+
+@keyframes burst-pop {
+    0% { transform: scale(0.5) rotate(-15deg); }
+    50% { transform: scale(1.5) rotate(-15deg); }
+    100% { transform: scale(1.0) rotate(-15deg) translateY(-20px); opacity: 0; }
+}
+
+/* Фикс от свайпа на iOS (дополнительная страховка) */
+body, html {
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    -webkit-overflow-scrolling: none;
+}
