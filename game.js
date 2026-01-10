@@ -18,7 +18,7 @@ const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
     LEVEL_TIME: 60,
-    WIN_SCORE: 3000,
+    WIN_SCORE: 4500,
     
     SCORE: {
         HEAD_SPIN: 2,
