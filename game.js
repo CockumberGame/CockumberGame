@@ -3,7 +3,7 @@ window.onerror = function(msg, url, line) {
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v6.1 (VISUAL JUICE UPDATE)
+   COCKUMBER RUBBER - CORE v7.0 (INSTANT AUDIO & PERFECT STROKE FIX)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -23,7 +23,7 @@ const CONFIG = {
     SCORE: {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
-        BODY_BONUS: 100, // Увеличил бонус за идеальный проход!
+        BODY_BONUS: 100,
         TAP: 3,
         PENALTY_BASE: 10,
         MAX_COMBO: 1.5
@@ -34,8 +34,15 @@ const CONFIG = {
     },
 
     SCRUB: { HEAD_STEP: 0.4 },
-    THRESHOLDS: { HEAD: 0.6, BODY: 20, BODY_FULL: 0.85 },
     
+    THRESHOLDS: {
+        HEAD: 0.6, 
+        BODY: 20, 
+        // 70% от высоты зоны (260px * 0.7 = ~180px)
+        // Нужно провести 180px не отпуская, чтобы получить бонус
+        BODY_PERFECT_RATIO: 0.7 
+    },
+
     PHASE_MIN_TIME: 3000,
     PHASE_MAX_TIME: 6000,
     PAUSE_TIME: 1000
@@ -54,7 +61,10 @@ let state = {
     combo: 1.0
 };
 
+// Звуки
 const audio = { head: [], body: [], tap: [], win: null, lose: null };
+
+// Спрайты
 let sprites = {
     head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
@@ -66,7 +76,7 @@ let sprites = {
 const getEl = (id) => document.getElementById(id);
 const els = {
     container: getEl('game-container'),
-    world: getEl('world-layer'), // Добавили для тряски
+    world: getEl('world-layer'),
     baseCucumber: getEl('cucumber-base'),
     screens: {
         menu: getEl('screen-menu'),
@@ -104,7 +114,7 @@ const els = {
 function initAudio() {
     const load = (path) => {
         const a = new Audio(path);
-        a.volume = 0.8;
+        a.volume = 0.9;
         a.onerror = () => {}; 
         return a;
     };
@@ -140,7 +150,6 @@ function initSprites() {
         el.style.backgroundRepeat = 'no-repeat';
         el.style.backgroundSize = `${frameCount * 360}px 640px`;
         el.style.backgroundPosition = `0px 0px`;
-        
         return el;
     };
 
@@ -153,7 +162,6 @@ function initSprites() {
         const setupResultSprite = (id, img, frames) => {
             let old = document.getElementById(id);
             if(old) old.remove();
-            
             let el = document.createElement('div');
             el.id = id;
             el.style.position = 'relative';
@@ -244,7 +252,7 @@ function gameLoop() {
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// === 5. SPRITE RENDER ===
+// === 5. RENDER & SPRITES ===
 function renderSprites() {
     if (els.screens.result.classList.contains('active')) {
         ['win', 'lose'].forEach(name => {
@@ -282,7 +290,6 @@ function renderSprites() {
     }
 }
 
-// Функции анимации
 function scrubSprite(name, deltaFrames) {
     const s = sprites[name];
     if (!s || !s.el) return;
@@ -302,7 +309,6 @@ function mapSpriteToPosition(name, percent) {
     s.frame = targetFrame;
 }
 
-// === HELPERS ===
 function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
@@ -315,13 +321,10 @@ function enterWaitPhase() {
 function pickNewPhase() {
     const phases = [PHASES.HEAD, PHASES.BODY, PHASES.TAP];
     let next = phases[Math.floor(Math.random() * phases.length)];
-    if (next === state.lastPhase && Math.random() > 0.4) {
-         next = phases.find(p => p !== state.lastPhase);
-    }
+    if (next === state.lastPhase && Math.random() > 0.4) next = phases.find(p => p !== state.lastPhase);
     state.lastPhase = next;
     state.currentPhase = next;
     
-    // JUICE: Легкая вибрация при смене фазы
     tg.HapticFeedback.impactOccurred('light');
 
     const duration = CONFIG.PHASE_MIN_TIME + Math.random() * (CONFIG.PHASE_MAX_TIME - CONFIG.PHASE_MIN_TIME);
@@ -336,32 +339,28 @@ function pickNewPhase() {
     }
 }
 
+// === IMPROVED SOUND LOGIC ===
 function playZoneSound(type) {
     let pool = audio[type];
     if (!pool || pool.length === 0) return;
+
+    // Для ТАПОВ разрешаем наложение звуков (Machine Gun Effect)
+    if (type === PHASES.TAP) {
+        // Клонируем ноду для полифонии, если все заняты
+        const freeSnd = pool.find(s => s.paused) || pool[0].cloneNode();
+        freeSnd.currentTime = 0;
+        freeSnd.volume = 1.0;
+        freeSnd.play().catch(()=>{});
+        return;
+    }
+
+    // Для остальных зон - играем, только если есть свободный слот, 
+    // или если прошло достаточно времени (чтобы не было каши)
     if (pool.some(snd => !snd.paused)) return;
+
     const snd = pool[Math.floor(Math.random() * pool.length)];
     snd.currentTime = 0;
     snd.play().catch(()=>{});
-}
-
-// === VISUAL EFFECTS ===
-function shakeScreen() {
-    if(!els.world) return;
-    // Снимаем класс, чтобы перезапустить анимацию (хак)
-    els.world.classList.remove('shake-effect');
-    void els.world.offsetWidth; // Триггер рефлоу
-    els.world.classList.add('shake-effect');
-}
-
-function squashCucumber() {
-    if(!els.baseCucumber) return;
-    els.baseCucumber.classList.remove('squash-effect');
-    void els.baseCucumber.offsetWidth;
-    els.baseCucumber.classList.add('squash-effect');
-    setTimeout(() => {
-        if(els.baseCucumber) els.baseCucumber.classList.remove('squash-effect');
-    }, 100);
 }
 
 
@@ -390,7 +389,10 @@ window.addEventListener('touchend', () => {
 let gestureData = {
     headAngle: null, headAccumulator: 0, accFrameHead: 0,
     bodyLastY: null, bodyAccumulator: 0,
-    strokeStartY: 0, strokeMinY: 9999, strokeMaxY: 0
+    // Бонусные данные
+    strokeStartY: 0,
+    strokeDistance: 0,
+    strokeDir: 0 // 1 - вниз, -1 - вверх
 };
 
 function startBodyStroke(e) {
@@ -400,28 +402,22 @@ function startBodyStroke(e) {
     }
     const touch = e.touches[0];
     gestureData.strokeStartY = touch.clientY;
-    gestureData.strokeMinY = touch.clientY;
-    gestureData.strokeMaxY = touch.clientY;
+    gestureData.strokeDistance = 0;
+    gestureData.strokeDir = 0;
 }
 
 function endBodyStroke(e) {
-    if (state.currentPhase !== PHASES.BODY) return;
-    const dist = gestureData.strokeMaxY - gestureData.strokeMinY;
-    const zoneH = els.zones.body.offsetHeight;
-    if (dist > zoneH * CONFIG.THRESHOLDS.BODY_FULL) {
-        triggerSuccess(PHASES.BODY, 180, gestureData.strokeMaxY, true);
-    }
+    // Сброс
+    gestureData.strokeDistance = 0;
 }
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     const touch = e.touches[0];
-    
     if (state.currentPhase !== zoneName) {
         applyPenalty(touch, 1);
         return;
     }
-
     switch (zoneName) {
         case PHASES.HEAD: processHead(touch, e.currentTarget); break;
         case PHASES.BODY: processBody(touch, e.currentTarget); break;
@@ -462,8 +458,32 @@ function processBody(touch, target) {
     let percent = (y - rect.top) / rect.height;
     mapSpriteToPosition('body', percent);
     
-    if (y < gestureData.strokeMinY) gestureData.strokeMinY = y;
-    if (y > gestureData.strokeMaxY) gestureData.strokeMaxY = y;
+    // --- PERFECT STROKE LOGIC (V7) ---
+    if (gestureData.bodyLastY !== null) {
+        const delta = y - gestureData.bodyLastY;
+        const currentDir = delta > 0 ? 1 : -1;
+
+        if (Math.abs(delta) > 1) { // Игнорируем микро-дрожание
+            if (gestureData.strokeDir !== 0 && currentDir !== gestureData.strokeDir) {
+                // Смена направления - сбрасываем бонус
+                gestureData.strokeStartY = y;
+                gestureData.strokeDistance = 0;
+            }
+            gestureData.strokeDir = currentDir;
+            gestureData.strokeDistance = Math.abs(y - gestureData.strokeStartY);
+
+            // Проверка на бонус (70% от высоты зоны)
+            const requiredDist = rect.height * CONFIG.THRESHOLDS.BODY_PERFECT_RATIO;
+            
+            if (gestureData.strokeDistance > requiredDist) {
+                triggerSuccess(PHASES.BODY, 180, 320, true);
+                // Сбрасываем, чтобы не спамить бонусами на одном движении
+                gestureData.strokeStartY = y; 
+                gestureData.strokeDistance = 0;
+            }
+        }
+    }
+    // ---------------------------------
 
     if (gestureData.bodyLastY !== null) {
         const delta = Math.abs(y - gestureData.bodyLastY);
@@ -478,7 +498,7 @@ function processBody(touch, target) {
 
 function processTap(touch) {
     triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY);
-    squashCucumber(); // JUICE: Сжатие!
+    squashCucumber();
     
     const s = sprites.bottom;
     s.visible = true;
@@ -504,7 +524,7 @@ function applyPenalty(touch, severity) {
         updateScoreUI();
         spawnFloatingText(`-${penalty}`, touch.clientX, touch.clientY, 'text-penalty');
         tg.HapticFeedback.notificationOccurred('error');
-        shakeScreen(); // JUICE: Тряска при ошибке!
+        shakeScreen();
     }
 }
 
@@ -513,14 +533,17 @@ function triggerSuccess(type, x, y, isBonus = false) {
     
     if (isBonus) {
         pts = CONFIG.SCORE.BODY_BONUS;
-        spawnFloatingText(`PERFECT! +${pts}`, 180, 320, 'text-perfect'); // JUICE: Большой текст
+        // JUICE: Тряска и мощная вибрация
+        spawnFloatingText(`PERFECT! +${pts}`, 180, 320, 'text-perfect');
         tg.HapticFeedback.notificationOccurred('success');
-        shakeScreen(); // JUICE: Тряска от радости!
+        shakeScreen();
     } else {
         if (type === PHASES.HEAD) pts = CONFIG.SCORE.HEAD_SPIN;
         if (type === PHASES.BODY) pts = CONFIG.SCORE.BODY_RUB;
         if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
         playZoneSound(type);
+        // JUICE: Обычная вибрация
+        tg.HapticFeedback.impactOccurred('medium');
     }
     
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
@@ -529,7 +552,24 @@ function triggerSuccess(type, x, y, isBonus = false) {
     updateScoreUI();
 
     if (!isBonus && Math.random() > 0.6) spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
-    if (!isBonus && Math.random() > 0.7) tg.HapticFeedback.impactOccurred('light');
+}
+
+// === EFFECTS ===
+function shakeScreen() {
+    if(!els.world) return;
+    els.world.classList.remove('shake-effect');
+    void els.world.offsetWidth;
+    els.world.classList.add('shake-effect');
+}
+
+function squashCucumber() {
+    if(!els.baseCucumber) return;
+    els.baseCucumber.classList.remove('squash-effect');
+    void els.baseCucumber.offsetWidth;
+    els.baseCucumber.classList.add('squash-effect');
+    setTimeout(() => {
+        if(els.baseCucumber) els.baseCucumber.classList.remove('squash-effect');
+    }, 100);
 }
 
 function updateScoreUI() {
@@ -545,25 +585,20 @@ function spawnFloatingText(text, x, y, className) {
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
     els.particles.appendChild(el);
-    setTimeout(() => el.remove(), 1000); // Чуть дольше живет
+    setTimeout(() => el.remove(), 1500);
 }
 
 function finishGame() {
     state.isPlaying = false;
     clearInterval(window.secTimerId);
     cancelAnimationFrame(window.loopId);
-    
     els.screens.game.classList.remove('active');
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
-    
-    sprites.head.visible = false;
-    sprites.body.visible = false;
-    sprites.bottom.visible = false;
+    sprites.head.visible = false; sprites.body.visible = false; sprites.bottom.visible = false;
     if(els.baseCucumber) els.baseCucumber.style.opacity = 1;
 
     const isWin = state.score >= CONFIG.WIN_SCORE;
-    
     if (sprites.win.el) sprites.win.el.style.display = 'none';
     if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
