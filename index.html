@@ -2,82 +2,159 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <!-- Настройка Viewport для игр:
+         - user-scalable=no: запрет зума
+         - viewport-fit=cover: использование всей площади экрана (для iPhone с челкой)
+         - maximum-scale=1.0: фиксация масштаба
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- Настройки для iOS (PWA/WebApp) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="format-detection" content="telephone=no">
+
     <title>Cockumber Rubber</title>
+
+    <!-- Шрифт Pixel Art -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <!-- Стили -->
     <link rel="stylesheet" href="styles.css">
+
+    <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-    <!-- Фоновый блюр для десктопа -->
-    <div id="desktop-bg"></div>
 
-    <!-- Основной игровой контейнер (всегда 9:16 или full mobile) -->
-    <div id="game-container">
+    <!-- 
+      Обертка приложения. 
+      На мобильных занимает 100%. 
+      На ПК центрирует игру.
+    -->
+    <div id="app-wrapper">
         
-        <!-- ЭКРАН: МЕНЮ -->
-        <div id="screen-menu" class="screen active">
-            <h1 class="title">COCKUMBER<br>RUBBER</h1>
-            <div class="high-score">Рекорд: <span id="best-score">0</span></div>
-            <button id="btn-start" class="pixel-btn">НАЧАТЬ</button>
-        </div>
+        <!-- 
+           ГЛАВНЫЙ ИГРОВОЙ КОНТЕЙНЕР 
+           Базовое разрешение: 360x640 px.
+           В CSS и JS мы будем масштабировать этот блок (transform: scale),
+           чтобы он идеально вписывался в любой экран, сохраняя координаты.
+        -->
+        <div id="game-container">
 
-        <!-- ЭКРАН: ИГРА -->
-        <div id="screen-game" class="screen">
-            <!-- HUD -->
-            <div class="hud">
-                <div class="timer-bar">
-                    <div id="timer-fill"></div>
-                </div>
-                <div class="score-box">
-                    SCORE: <span id="game-score">0</span>
-                    <div id="combo-display" class="hidden">x1.0</div>
+            <!-- ========================================== -->
+            <!-- ЭКРАН 1: МЕНЮ -->
+            <!-- ========================================== -->
+            <div id="screen-menu" class="screen active">
+                <div class="menu-content">
+                    <h1 class="game-title">COCKUMBER<br>RUBBER</h1>
+                    <div class="highscore-box">
+                        <span class="label">РЕКОРД</span>
+                        <span id="menu-best-score">0</span>
+                    </div>
+                    <button id="btn-start" class="pixel-btn">НАЧАТЬ</button>
                 </div>
             </div>
 
-            <!-- ИГРОВОЕ ПОЛЕ -->
-            <div id="cucumber-wrapper">
-                <!-- Базовый слой (статичный) -->
-                <img src="assets/cucumber_base.png" class="cucumber-base" alt="Base">
+            <!-- ========================================== -->
+            <!-- ЭКРАН 2: ГЕЙМПЛЕЙ -->
+            <!-- ========================================== -->
+            <div id="screen-game" class="screen">
                 
-                <!-- Слои анимации (спрайты, скрыты по умолчанию) -->
-                <div id="anim-head" class="anim-layer"></div>
-                <div id="anim-body" class="anim-layer"></div>
-                <div id="anim-bottom" class="anim-layer"></div>
+                <!-- СЛОЙ 0: ФОН -->
+                <img src="assets/bg.png" id="game-bg" alt="background">
 
-                <!-- ИНТЕРАКТИВНЫЕ ЗОНЫ (невидимые, ловят касания) -->
-                <!-- Верх: Вращение -->
-                <div id="zone-head" class="touch-zone">
-                    <div class="indicator-icon spin-icon">↻</div>
-                    <div id="zone-head-extra" class="extra-target hidden">⬇⬆</div>
+                <!-- СЛОЙ 1: ИГРОВОЙ МИР (Огурец и Эффекты) -->
+                <div id="world-layer">
+                    <!-- Базовый спрайт огурца -->
+                    <img src="assets/cucumber_base.png" id="cucumber-base" class="sprite" alt="cucumber">
+
+                    <!-- Оверлеи анимаций (Скрыты по умолчанию, opacity: 0) -->
+                    <!-- Голова: вращение -->
+                    <img src="assets/anim_head.png" id="anim-head" class="sprite anim-overlay" alt="effect">
+                    <!-- Тело: трение -->
+                    <img src="assets/anim_body.png" id="anim-body" class="sprite anim-overlay" alt="effect">
+                    <!-- Низ: тап/удар -->
+                    <img src="assets/anim_bottom.png" id="anim-bottom" class="sprite anim-overlay" alt="effect">
+
+                    <!-- Иконки-подсказки (Стрелочки) -->
+                    <!-- Позиционируются через CSS по точным координатам -->
+                    <img src="assets/icon_arrow.png" id="icon-head" class="icon-indicator hidden" alt="spin">
+                    <img src="assets/icon_arrow_vertical.png" id="icon-body" class="icon-indicator hidden" alt="rub">
+                    
+                    <!-- Две иконки тапа -->
+                    <img src="assets/icon_tap.png" id="icon-tap-1" class="icon-indicator hidden" alt="tap">
+                    <img src="assets/icon_tap.png" id="icon-tap-2" class="icon-indicator hidden" alt="tap">
                 </div>
 
-                <!-- Середина: Трение -->
-                <div id="zone-body" class="touch-zone">
-                    <div class="indicator-icon rub-icon">↕</div>
+                <!-- СЛОЙ 2: ВСПЛЫВАЮЩИЕ ОЧКИ (Popups) -->
+                <div id="particles-container"></div>
+
+                <!-- СЛОЙ 3: ИНТЕРФЕЙС (HUD) -->
+                <div id="ui-layer">
+                    <!-- Верхняя панель -->
+                    <div class="top-hud">
+                        <!-- Цифровой таймер (слева) -->
+                        <div id="timer-digits" class="pixel-text">60</div>
+                        
+                        <!-- Бар прогресса уровня (центр/право) -->
+                        <div class="progress-bar-container">
+                            <div id="progress-fill"></div>
+                            <!-- Текст очков внутри бара -->
+                            <div id="score-text" class="pixel-text">0 / 2000</div>
+                        </div>
+                    </div>
+
+                    <!-- Фиолетовая полоска таймера активной зоны -->
+                    <!-- Появляется под верхним худом -->
+                    <div id="phase-timer-container" class="hidden">
+                        <div id="phase-timer-fill"></div>
+                    </div>
+
+                    <!-- Дисплей комбо (появляется при серии успехов) -->
+                    <div id="combo-display" class="pixel-text hidden">x1.0</div>
                 </div>
 
-                <!-- Низ: Тапы -->
-                <div id="zone-bottom" class="touch-zone">
-                    <div id="tap-target-1" class="tap-target hidden">TAP</div>
-                    <div id="tap-target-2" class="tap-target hidden">TAP</div>
+                <!-- СЛОЙ 4: СЕНСОРНЫЙ (HITBOXES) -->
+                <!-- Прозрачные блоки поверх всего, ловят касания -->
+                <div id="input-layer">
+                    <!-- Зона головы (0 - 240px) -->
+                    <div id="zone-head" class="touch-zone"></div>
+                    
+                    <!-- Зона тела (240 - 500px) -->
+                    <div id="zone-body" class="touch-zone"></div>
+                    
+                    <!-- Зона низа (500 - 640px) -->
+                    <div id="zone-tap" class="touch-zone"></div>
+                </div>
+
+            </div>
+
+            <!-- ========================================== -->
+            <!-- ЭКРАН 3: РЕЗУЛЬТАТ -->
+            <!-- ========================================== -->
+            <div id="screen-result" class="screen">
+                <div class="result-content">
+                    <h2 id="result-title">ПОБЕДА!</h2>
+                    
+                    <div class="final-score-box">
+                        <p>СЧЁТ:</p>
+                        <p id="result-score-val">0</p>
+                    </div>
+
+                    <p id="result-message" class="result-msg">Огурец доволен.</p>
+                    
+                    <button id="btn-retry" class="pixel-btn">ЗАНОВО</button>
                 </div>
             </div>
-            
-            <!-- Всплывающие очки -->
-            <div id="particles-container"></div>
-        </div>
 
-        <!-- ЭКРАН: РЕЗУЛЬТАТ -->
-        <div id="screen-result" class="screen">
-            <h2 id="result-title">ПОБЕДА!</h2>
-            <div class="result-score">Счёт: <span id="final-score">0</span></div>
-            <p id="result-msg">Огурец доволен.</p>
-            <button id="btn-retry" class="pixel-btn">ЗАНОВО</button>
-            <button id="btn-next" class="pixel-btn hidden">ДАЛЬШЕ</button>
-        </div>
-    </div>
+        </div> <!-- Конец #game-container -->
+    </div> <!-- Конец #app-wrapper -->
 
+    <!-- Основная логика игры -->
     <script src="game.js"></script>
 </body>
 </html>

@@ -1,22 +1,33 @@
+/* =========================================
+   RESET & GLOBAL
+   ========================================= */
 :root {
-    --primary: #55ff55;
-    --danger: #ff5555;
-    --bg: #1b1b1b;
+    --bg-color: #1b1b1b;
+    --primary: #55ff55;  /* Зеленый */
+    --danger: #ff5555;   /* Красный */
+    --warn: #ffcc00;     /* Желтый */
+    --orange: #ff8800;   /* Оранжевый */
+    --phase: #bd00ff;    /* Фиолетовый для таймера зоны */
+    --text-shadow: 2px 2px 0px #000000;
 }
 
 * {
     box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    /* Отключаем выделение текста и стандартные действия браузера */
     user-select: none;
     -webkit-user-select: none;
-    touch-action: none; /* Критично для игры жестами */
+    -webkit-tap-highlight-color: transparent;
+    /* КРИТИЧНО: Отключаем скролл и зум жестами */
+    touch-action: none;
 }
 
 body {
-    margin: 0;
-    padding: 0;
-    background: #000;
+    background-color: #000;
     font-family: 'Press Start 2P', cursive;
     color: white;
+    width: 100vw;
     height: 100vh;
     overflow: hidden;
     display: flex;
@@ -24,40 +35,36 @@ body {
     align-items: center;
 }
 
-/* Фон для десктопа */
-#desktop-bg {
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    background: url('assets/bg_blur.jpg') center/cover;
-    filter: blur(10px) brightness(0.5);
-    z-index: 0;
-}
-
-/* Контейнер игры */
-#game-container {
+/* Обертка для центрирования на Десктопе */
+#app-wrapper {
     position: relative;
     width: 100%;
     height: 100%;
-    max-width: 500px; /* Ограничение ширины для десктопа */
-    max-height: 900px; /* Чтобы не был слишком длинным на вертикальных мониторах */
-    aspect-ratio: 9/16; /* Желаемые пропорции */
-    background: var(--bg);
-    z-index: 1;
+    background: #111;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     overflow: hidden;
-    box-shadow: 0 0 50px rgba(0,0,0,0.8);
 }
 
-/* Адаптив для чисто мобильных (убираем ограничения) */
-@media (max-width: 500px) {
-    #game-container {
-        max-width: 100%;
-        max-height: 100%;
-        border-radius: 0;
-        aspect-ratio: auto;
-    }
+/* =========================================
+   GAME CONTAINER (REFERENCE CANVAS)
+   Базовый размер: 360x640.
+   JS будет использовать transform: scale(), 
+   чтобы подогнать этот блок под экран пользователя.
+   ========================================= */
+#game-container {
+    position: relative;
+    width: 360px;
+    height: 640px;
+    background: #222;
+    overflow: hidden;
+    box-shadow: 0 0 50px rgba(0,0,0,0.5);
 }
 
+/* =========================================
+   SCREENS (Меню, Игра, Результат)
+   ========================================= */
 .screen {
     position: absolute;
     top: 0;
@@ -68,155 +75,329 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    z-index: 10;
-    background: rgba(27, 27, 27, 0.95);
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 100; /* Меню перекрывает игру */
 }
 
-.screen.active { display: flex; }
+.screen.active {
+    display: flex;
+}
 
-/* МЕНЮ */
-.title {
+/* Меню и Результаты */
+.game-title {
     font-size: 32px;
     color: var(--primary);
     text-align: center;
-    line-height: 1.5;
+    line-height: 1.4;
     margin-bottom: 40px;
     text-shadow: 4px 4px 0px #000;
 }
 
 .pixel-btn {
     font-family: inherit;
-    font-size: 18px;
-    padding: 20px 40px;
-    background: white;
+    font-size: 16px;
+    padding: 20px 30px;
+    background: #fff;
+    color: #000;
     border: 4px solid #000;
-    box-shadow: 4px 4px 0px #888;
+    box-shadow: 6px 6px 0px #555;
     cursor: pointer;
-    margin-top: 20px;
+    margin-top: 30px;
+    transition: transform 0.1s;
 }
+
 .pixel-btn:active {
     transform: translate(4px, 4px);
-    box-shadow: none;
+    box-shadow: 2px 2px 0px #555;
 }
 
-/* ИГРА */
-#screen-game {
-    background: radial-gradient(circle at center, #2a2a2a, #000);
-}
-
-.hud {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding: 15px;
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.timer-bar {
-    width: 100%;
-    height: 10px;
-    background: #333;
-    border: 2px solid white;
-}
-#timer-fill {
-    height: 100%;
-    width: 100%;
-    background: var(--primary);
-    transition: width 0.1s linear;
-}
-
-.score-box {
+.highscore-box, .final-score-box {
+    text-align: center;
+    margin-bottom: 20px;
     font-size: 14px;
-    display: flex;
-    justify-content: space-between;
+    line-height: 2;
 }
 
-#combo-display {
-    color: #ffcc00;
-    animation: pulse 0.5s infinite;
+#result-title {
+    font-size: 28px;
+    margin-bottom: 20px;
+    text-shadow: var(--text-shadow);
 }
 
-/* ОГУРЕЦ И СЛОИ */
-#cucumber-wrapper {
-    position: relative;
-    width: 80%;
-    height: 80%;
-    display: flex;
-    justify-content: center;
+.result-msg {
+    font-size: 12px;
+    color: #ccc;
+    margin-top: 10px;
+    text-align: center;
+    max-width: 80%;
+    line-height: 1.5;
 }
 
-.cucumber-base {
+/* =========================================
+   GAMEPLAY LAYERS
+   ========================================= */
+
+/* СЛОЙ 0: Фон */
+#game-bg {
+    position: absolute;
+    width: 100%;
     height: 100%;
-    width: auto;
-    object-fit: contain;
-    z-index: 1;
+    object-fit: cover;
+    z-index: 0;
+    opacity: 0.5;
 }
 
-.anim-layer {
+/* СЛОЙ 1: Мир (Огурец) */
+#world-layer {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 2;
-    pointer-events: none; /* Пропускаем клики сквозь анимацию */
-    opacity: 0;
-    transition: opacity 0.2s;
-    background-size: cover; /* Или contain, зависит от спрайта */
+    z-index: 10;
 }
 
-/* Пример спрайтовой анимации */
-.anim-active {
-    opacity: 1;
-    /* Здесь подключаем animation-name в JS или CSS */
-}
-
-/* ЗОНЫ */
-.touch-zone {
+.sprite {
     position: absolute;
-    /* border: 1px dashed rgba(255,255,255,0.2); Отладка */
-    z-index: 5;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* Или cover, если картинки 360x640 pixel-perfect */
 }
 
-/* Разметка зон в % от высоты контейнера огурца */
-#zone-head { top: 0; height: 25%; width: 100%; }
-#zone-body { top: 25%; height: 50%; width: 100%; }
-#zone-bottom { bottom: 0; height: 25%; width: 100%; }
+/* Оверлеи анимаций */
+.anim-overlay {
+    opacity: 0;
+    transition: opacity 0.1s ease-out;
+    mix-blend-mode: screen; /* Чтобы свечение выглядело круто */
+}
 
-/* Экстра цели */
-.extra-target {
+/* ИКОНКИ (Стрелки) - Pixel Perfect Positioning */
+.icon-indicator {
+    position: absolute;
+    width: 64px; /* Примерный размер, можно менять */
+    height: 64px;
+    object-fit: contain;
+    opacity: 0.9;
+    filter: drop-shadow(0 0 5px rgba(0,0,0,0.8));
+    pointer-events: none; /* Сквозь иконки кликаем */
+    transition: opacity 0.2s;
+}
+
+.hidden {
+    opacity: 0 !important;
+    display: none !important; /* Чтобы наверняка убрать из потока */
+}
+
+/* Координаты от пользователя */
+#icon-head {
+    top: 100px;
+    right: 69px;
+    animation: spin-pulse 2s linear infinite;
+}
+
+#icon-body {
+    top: 370px;
+    right: 69px;
+    /* Центрируем точку трансформации для красивого растягивания */
+    transform-origin: center;
+    animation: stretch-vertical 1s ease-in-out infinite;
+}
+
+#icon-tap-1 {
+    top: 570px;
+    left: 100px;
+    width: 48px; /* Чуть поменьше для тапов */
+    height: 48px;
+    animation: tap-pulse 0.4s ease infinite alternate;
+}
+
+#icon-tap-2 {
+    top: 570px;
+    left: 140px;
+    width: 48px;
+    height: 48px;
+    animation: tap-pulse 0.4s ease infinite alternate-reverse; /* Рассинхрон */
+}
+
+/* СЛОЙ 3: UI (HUD) */
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 20;
+    pointer-events: none; /* Пропускаем клики сквозь UI */
+}
+
+.top-hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+/* Цифровой таймер */
+#timer-digits {
+    font-size: 20px;
+    color: white;
+    text-shadow: 2px 2px 0 #000;
     width: 60px;
-    height: 60px;
-    background: rgba(255, 215, 0, 0.3);
-    border: 2px solid gold;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-.tap-target {
-    width: 80px;
-    height: 80px;
-    background: rgba(85, 85, 255, 0.3);
-    border: 2px solid #55f;
-    border-radius: 10px;
-    margin: 10px;
+/* Цвета таймера (JS будет менять классы) */
+.timer-normal { color: white; }
+.timer-warn { color: var(--warn) !important; }
+.timer-orange { color: var(--orange) !important; }
+.timer-crit { color: var(--danger) !important; animation: blink 0.5s infinite; }
+
+/* Бар очков */
+.progress-bar-container {
+    flex-grow: 1;
+    height: 24px;
+    background: #333;
+    border: 2px solid #fff;
+    position: relative;
+    box-shadow: 2px 2px 0 #000;
+}
+
+#progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    transition: width 0.2s linear;
+}
+
+#score-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 10px;
+    color: white;
+    text-shadow: 1px 1px 0 #000;
+    z-index: 2;
 }
 
-/* Утилиты */
-.hidden { display: none !important; }
-@keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
-@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+/* Фиолетовая полоска (Таймер зоны) */
+#phase-timer-container {
+    position: absolute;
+    top: 45px; /* Сразу под верхним баром */
+    left: 10px;
+    right: 10px;
+    height: 8px;
+    background: rgba(0,0,0,0.5);
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+#phase-timer-fill {
+    height: 100%;
+    width: 100%;
+    background: var(--phase);
+    box-shadow: 0 0 5px var(--phase);
+    transition: width 0.1s linear;
+}
+
+/* Комбо дисплей */
+#combo-display {
+    position: absolute;
+    top: 70px;
+    right: 20px;
+    font-size: 16px;
+    color: var(--warn);
+    text-shadow: 2px 2px 0 #000;
+    transform: rotate(-10deg);
+}
+
+/* СЛОЙ 4: INPUT (HITBOXES) */
+#input-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 30;
+    /* Важно: этот слой прозрачный, но ловит все события */
+}
+
+.touch-zone {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    /* Границы для отладки можно включить: border: 1px solid red; */
+}
+
+#zone-head {
+    top: 0;
+    height: 240px;
+}
+
+#zone-body {
+    top: 240px;
+    height: 260px; /* До 500px */
+}
+
+#zone-tap {
+    top: 500px;
+    height: 140px; /* Остаток до 640px */
+}
+
+/* Всплывающий текст (очки/штрафы) */
+.floating-text {
+    position: absolute;
+    font-size: 14px;
+    font-weight: bold;
+    pointer-events: none;
+    z-index: 40;
+    animation: floatUp 0.8s ease-out forwards;
+    text-shadow: 1px 1px 0 #000;
+}
+
+.text-score { color: var(--primary); }
+.text-penalty { color: var(--danger); }
+
+/* =========================================
+   ANIMATIONS
+   ========================================= */
+
+/* Вращение + Пульс (Голова) */
+@keyframes spin-pulse {
+    0% { transform: scale(1) rotate(0deg); }
+    50% { transform: scale(1.15) rotate(180deg); }
+    100% { transform: scale(1) rotate(360deg); }
+}
+
+/* Растягивание (Тело) */
+@keyframes stretch-vertical {
+    0% { transform: scaleY(1); }
+    50% { transform: scaleY(1.25); }
+    100% { transform: scaleY(1); }
+}
+
+/* Пульсация (Тап) */
+@keyframes tap-pulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.15); }
+}
+
+/* Мигание красным (Крит таймер) */
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+/* Всплытие текста */
+@keyframes floatUp {
+    0% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-40px); opacity: 0; }
+}
