@@ -141,17 +141,24 @@ html, body {
    Мы не используем <img> для спрайтов, а используем background-image.
    JS будет менять background-position.
 */
+/* Обновленный класс для спрайтов в styles.css */
 .anim-sprite {
     position: absolute;
     top: 0;
     left: 0;
-    width: 360px; /* Ширина ОДНОГО кадра */
+    width: 360px; 
     height: 640px;
-    background-repeat: no-repeat;
-    opacity: 0; /* Скрыт по умолчанию */
-    transition: opacity 0.2s;
+    
+    /* ВОТ ЭТО ИСПРАВИТ "ОКОШКИ" И ДУБЛИ: */
+    background-repeat: no-repeat; 
+    
+    /* А ЭТО УБЕРЕТ ЛАГИ: */
+    will-change: background-position;
+    
+    opacity: 0;
+    transition: opacity 0.1s;
     pointer-events: none;
-    mix-blend-mode: normal; /* Можно поставить screen для свечения */
+    mix-blend-mode: normal; 
 }
 
 /* ИКОНКИ (Подсказки) */

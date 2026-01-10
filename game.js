@@ -1,33 +1,26 @@
 window.onerror = function(msg, url, line) {
-   // Выводим ошибки на экран, чтобы ты видел их на телефоне
-   alert("Error: " + msg + "\nLine: " + line);
+   // alert("Error: " + msg + "\nLine: " + line); // Раскомментируй для отладки
    return false;
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - FINAL CORE v3.1 (Fixed & Safe)
+   COCKUMBER RUBBER - FINAL CORE v4.0 (Scrubbing & Sync)
    ================================================================== */
 
-// Безопасная инициализация Telegram (чтобы работало и в браузере для тестов)
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
-    ready: () => {},
-    expand: () => {},
-    HapticFeedback: {
-        notificationOccurred: () => {},
-        impactOccurred: () => {}
-    }
+    ready: () => {}, expand: () => {},
+    HapticFeedback: { notificationOccurred: () => {}, impactOccurred: () => {} }
 };
 tg.ready();
 tg.expand();
 
-// === 1. НАСТРОЙКИ (CONFIG) ===
+// === 1. CONFIG ===
 const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
     LEVEL_TIME: 60,
     WIN_SCORE: 2000,
     
-    // БАЛАНС ОЧКОВ
     SCORE: {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
@@ -36,7 +29,7 @@ const CONFIG = {
         MAX_COMBO: 1.5
     },
 
-    // НАСТРОЙКИ СПРАЙТОВ (Твои цифры)
+    // Твои настройки кадров
     FRAMES: {
         head: 5,
         body: 9,
@@ -45,11 +38,16 @@ const CONFIG = {
         lose: 6
     },
 
-    ANIM_SPEED: 0.4,
+    // Настройки "Скраббинга" (Синхронизации)
+    // Сколько пикселей/радиан нужно пройти, чтобы сменить 1 кадр
+    SCRUB_SENSITIVITY: {
+        HEAD: 0.3, // Радианы (чем меньше, тем быстрее крутится анимация)
+        BODY: 15   // Пиксели (чем меньше, тем быстрее листаются кадры)
+    },
     
     THRESHOLDS: {
-        HEAD: 0.8,
-        BODY: 40
+        HEAD: 0.5, // Порог для очков
+        BODY: 30
     },
 
     PHASE_MIN_TIME: 3000,
@@ -59,7 +57,7 @@ const CONFIG = {
 
 const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
 
-// === 2. STATE & AUDIO SYSTEM ===
+// === 2. STATE ===
 let state = {
     isPlaying: false,
     score: 0,
@@ -70,28 +68,18 @@ let state = {
     combo: 1.0
 };
 
-// Аудио пул
-const audio = {
-    head: [],
-    body: [],
-    tap: [],
-    win: null,
-    lose: null
-};
+const audio = { head: [], body: [], tap: [], win: null, lose: null };
 
-// Спрайты
+// Спрайты теперь хранят точную позицию
 let sprites = {
-    head:   { frame: 0, dir: 1, active: false, el: null, frames: CONFIG.FRAMES.head },
-    body:   { frame: 0, dir: 1, active: false, el: null, frames: CONFIG.FRAMES.body },
-    bottom: { frame: 0, dir: 1, active: false, el: null, frames: CONFIG.FRAMES.bottom },
-    win:    { frame: 0, dir: 1, active: false, el: null, frames: CONFIG.FRAMES.win },
-    lose:   { frame: 0, dir: 1, active: false, el: null, frames: CONFIG.FRAMES.lose }
+    head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
+    body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
+    bottom: { frame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
+    win:    { frame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
+    lose:   { frame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
 };
 
-// DOM Elements
-// Используем try-catch на случай, если HTML не прогрузился, но скрипт запущен
 const getEl = (id) => document.getElementById(id);
-
 const els = {
     container: getEl('game-container'),
     baseCucumber: getEl('cucumber-base'),
@@ -125,20 +113,16 @@ const els = {
     particles: getEl('particles-container')
 };
 
-// --- 3. INIT & ASSETS ---
+// === 3. INIT ===
 
 function initAudio() {
     const load = (path) => {
-        // Создаем аудио объект, ошибки загрузки игнорируем (чтобы не крашилось)
         const a = new Audio(path);
         a.volume = 0.8;
-        a.onerror = () => console.log("Audio missing: " + path); 
+        a.onerror = () => {}; 
         return a;
     };
-
-    // Очищаем массивы перед загрузкой (на всякий случай)
     audio.head = []; audio.body = []; audio.tap = [];
-
     for(let i=1; i<=3; i++) {
         audio.head.push(load(`assets/sfx_head_${i}.mp3`));
         audio.body.push(load(`assets/sfx_body_${i}.mp3`));
@@ -161,6 +145,7 @@ function initSprites() {
             world.appendChild(el);
         }
         el.style.backgroundImage = `url('assets/${imgName}')`;
+        // ФИКС ДУБЛИРОВАНИЯ: Ширина фона точно по кадрам
         el.style.backgroundSize = `${frameCount * 100}% 100%`;
         el.style.backgroundPosition = `0% 0%`;
         return el;
@@ -204,19 +189,13 @@ function resizeGame() {
         els.container.style.transformOrigin = 'center center';
     }
 }
-
 window.addEventListener('resize', resizeGame);
 resizeGame();
 
-// --- 4. GAME LOOP ---
+// === 4. GAME LOOP ===
 
-// Проверка на существование кнопки перед навешиванием события
-if (document.getElementById('btn-start')) {
-    document.getElementById('btn-start').onclick = startGame;
-}
-if (document.getElementById('btn-retry')) {
-    document.getElementById('btn-retry').onclick = startGame;
-}
+if (document.getElementById('btn-start')) document.getElementById('btn-start').onclick = startGame;
+if (document.getElementById('btn-retry')) document.getElementById('btn-retry').onclick = startGame;
 
 function startGame() {
     initAudio();
@@ -235,15 +214,11 @@ function startGame() {
     els.screens.game.classList.add('active');
     els.ui.timerDigits.className = 'pixel-text timer-normal';
     
-    Object.values(els.icons).forEach(icon => {
-        if(icon) icon.classList.add('hidden');
-    });
-    
+    Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     updateScoreUI();
     
     if (window.loopId) cancelAnimationFrame(window.loopId);
     if (window.secTimerId) clearInterval(window.secTimerId);
-    
     window.secTimerId = setInterval(onSecondTick, 1000);
     gameLoop();
 }
@@ -255,8 +230,7 @@ function onSecondTick() {
     els.ui.timerDigits.textContent = state.timeRemaining;
     if (state.timeRemaining <= 10) els.ui.timerDigits.className = 'pixel-text timer-crit';
     else if (state.timeRemaining <= 20) els.ui.timerDigits.className = 'pixel-text timer-orange';
-    else els.ui.timerDigits.className = 'pixel-text timer-normal';
-
+    
     if (state.timeRemaining <= 0) finishGame();
 }
 
@@ -265,7 +239,8 @@ function gameLoop() {
 
     const now = Date.now();
 
-    updateSprites();
+    // Отрисовка спрайтов (только здесь мы меняем CSS)
+    renderSprites();
 
     // Фазы
     if (now >= state.phaseEndTime) {
@@ -276,7 +251,7 @@ function gameLoop() {
         }
     }
 
-    // UI Бара фазы
+    // UI Бара
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const totalTime = state.phaseTotalTime;
@@ -289,57 +264,85 @@ function gameLoop() {
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// --- 5. SPRITE ENGINE ---
-function updateSprites() {
-    Object.keys(sprites).forEach(key => {
-        const s = sprites[key];
-        const totalFrames = s.frames;
+// === 5. SPRITE ENGINE (SCRUBBING) ===
 
+// Эта функция вызывает сдвиг кадров на основе движения
+// delta: положительное или отрицательное число (направление)
+function scrubSprite(name, delta) {
+    const s = sprites[name];
+    if (!s || !s.el) return;
+
+    s.visible = true; // Делаем видимым, раз есть движение
+
+    // Обновляем кадр (зацикливание)
+    // Если delta > 0, идем вперед. Если < 0, назад.
+    s.frame += delta;
+
+    // Зацикливание (Looping)
+    if (s.frame >= s.frames) s.frame = 0;
+    if (s.frame < 0) s.frame = s.frames - 1;
+}
+
+// Эта функция переносит состояние js в css
+function renderSprites() {
+    // 1. Спрайты результата (автоплей)
+    if (els.screens.result.classList.contains('active')) {
+        ['win', 'lose'].forEach(name => {
+            const s = sprites[name];
+            if(s.visible && s.el) {
+                s.frame += 0.2; // Авто скорость
+                if (s.frame >= s.frames) s.frame = 0;
+                applyFrame(s);
+            }
+        });
+        return;
+    }
+
+    // 2. Игровые спрайты
+    let anyActive = false;
+    ['head', 'body', 'bottom'].forEach(name => {
+        const s = sprites[name];
         if (!s.el) return;
 
-        if (!s.active && !s.forcePlay) {
-            s.frame = 0;
+        if (s.visible) {
+            s.el.style.opacity = 1;
+            anyActive = true;
+            applyFrame(s);
+            
+            // Если это не тап (он сам исчезает), то можно сбрасывать видимость
+            // если долго нет действий. Но пока оставим так.
+        } else {
             s.el.style.opacity = 0;
-            return;
-        }
-
-        s.el.style.opacity = 1;
-
-        if (Math.random() < CONFIG.ANIM_SPEED) {
-            s.frame += s.dir;
-            if (s.frame >= totalFrames - 1) {
-                s.frame = totalFrames - 1;
-                s.dir = -1;
-            } else if (s.frame <= 0) {
-                s.frame = 0;
-                s.dir = 1;
-            }
-        }
-        
-        if (totalFrames > 1) {
-            const step = 100 / (totalFrames - 1);
-            const pos = step * s.frame;
-            s.el.style.backgroundPosition = `${pos}% 0%`;
         }
     });
 
-    if (sprites.head.active || sprites.body.active || sprites.bottom.active) {
-        if(els.baseCucumber) els.baseCucumber.style.opacity = 0;
-    } else {
-        if(els.baseCucumber) els.baseCucumber.style.opacity = 1;
+    // Скрываем базу, если есть анимация
+    if (els.baseCucumber) {
+        els.baseCucumber.style.opacity = anyActive ? 0 : 1;
+    }
+}
+
+function applyFrame(sprite) {
+    // Округляем фрейм до целого для отрисовки
+    const currentFrame = Math.floor(sprite.frame);
+    const totalFrames = sprite.frames;
+    
+    if (totalFrames > 1) {
+        const step = 100 / (totalFrames - 1);
+        const pos = step * currentFrame;
+        sprite.el.style.backgroundPosition = `${pos}% 0%`;
     }
 }
 
 function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
-    Object.values(els.icons).forEach(icon => {
-        if(icon) icon.classList.add('hidden');
-    });
+    Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     
-    sprites.head.active = false;
-    sprites.body.active = false;
-    sprites.bottom.active = false;
+    // Скрываем спрайты
+    sprites.head.visible = false;
+    sprites.body.visible = false;
+    sprites.bottom.visible = false;
 }
 
 function pickNewPhase() {
@@ -366,33 +369,21 @@ function pickNewPhase() {
     }
 }
 
-// --- 6. AUDIO LOGIC ---
 function playZoneSound(type) {
     let pool = audio[type];
     if (!pool || pool.length === 0) return;
-
-    const isPlaying = pool.some(snd => !snd.paused);
-    if (isPlaying) return;
+    if (pool.some(snd => !snd.paused)) return;
 
     const snd = pool[Math.floor(Math.random() * pool.length)];
     snd.currentTime = 0;
-    
-    // Оборачиваем в промис, чтобы избежать ошибок если автоплей запрещен
-    const playPromise = snd.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(error => {
-            // console.log("Audio play prevented");
-        });
-    }
+    snd.play().catch(()=>{});
 }
 
-// --- 7. INPUT HANDLING ---
+// === 6. INPUT HANDLING (SYNCED) ===
 
 // Запрещаем скролл
 document.addEventListener('touchmove', function(e) { 
-    if(e.target.closest('#game-container')) {
-        e.preventDefault(); 
-    }
+    if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
 
 if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
@@ -406,21 +397,29 @@ if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => checkPen
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
     gestureData.bodyLastY = null;
-    sprites.head.active = false;
-    sprites.body.active = false;
-    sprites.bottom.active = false;
+    
+    // При отпускании пальца можно либо скрывать спрайт, либо оставлять.
+    // Если скрыть сразу, будет мигать. Оставим таймер.
+    setTimeout(() => {
+        // Проверка: если пальца нет, скрываем (для головы/тела)
+        // Но пока оставим логику "Фаза закончилась - скрыли".
+        // Или сброс:
+        // sprites.head.visible = false; 
+    }, 500);
 });
 
 let gestureData = {
     headAngle: null,
     headAccumulator: 0,
     bodyLastY: null,
-    bodyAccumulator: 0
+    bodyAccumulator: 0,
+    // Накопители для смены кадров
+    frameAccHead: 0,
+    frameAccBody: 0
 };
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
-    
     const touch = e.touches[0];
     
     if (state.currentPhase !== zoneName) {
@@ -442,15 +441,27 @@ function processHead(touch, target) {
     const angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
     
     if (gestureData.headAngle !== null) {
-        let delta = Math.abs(angle - gestureData.headAngle);
-        if (delta > Math.PI) delta = 2 * Math.PI - delta; 
+        let delta = angle - gestureData.headAngle; // Raw delta
+        // Fix jump -PI to PI
+        if (delta > Math.PI) delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
         
-        gestureData.headAccumulator += delta;
-        
+        // 1. Очки
+        gestureData.headAccumulator += Math.abs(delta);
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
-            sprites.head.active = true; 
+        }
+
+        // 2. Анимация (Скраббинг)
+        // Если дельта > 0 (по часовой) -> кадр вперед
+        // Мы накапливаем движения, чтобы кадры не летели слишком быстро
+        gestureData.frameAccHead += delta;
+        
+        if (Math.abs(gestureData.frameAccHead) > CONFIG.SCRUB_SENSITIVITY.HEAD) {
+            const dir = gestureData.frameAccHead > 0 ? 1 : -1;
+            scrubSprite('head', dir);
+            gestureData.frameAccHead = 0; // Сброс накопителя
         }
     }
     gestureData.headAngle = angle;
@@ -459,13 +470,23 @@ function processHead(touch, target) {
 function processBody(touch) {
     const y = touch.clientY;
     if (gestureData.bodyLastY !== null) {
-        const delta = Math.abs(y - gestureData.bodyLastY);
-        gestureData.bodyAccumulator += delta;
+        const delta = y - gestureData.bodyLastY; // Raw delta (+ вниз, - вверх)
         
+        // 1. Очки
+        gestureData.bodyAccumulator += Math.abs(delta);
         if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
             triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
             gestureData.bodyAccumulator = 0;
-            sprites.body.active = true;
+        }
+
+        // 2. Анимация (Скраббинг)
+        gestureData.frameAccBody += delta;
+        if (Math.abs(gestureData.frameAccBody) > CONFIG.SCRUB_SENSITIVITY.BODY) {
+            // Если тянем вниз (delta > 0) -> кадры вперед (1)
+            // Если вверх (delta < 0) -> кадры назад (-1)
+            const dir = gestureData.frameAccBody > 0 ? 1 : -1;
+            scrubSprite('body', dir);
+            gestureData.frameAccBody = 0;
         }
     }
     gestureData.bodyLastY = y;
@@ -473,8 +494,20 @@ function processBody(touch) {
 
 function processTap(touch) {
     triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY);
-    sprites.bottom.active = true;
-    setTimeout(() => { sprites.bottom.active = false; }, 200);
+    
+    // Для тапа простая логика: показать 1-й кадр (сжатие), потом вернуть 0
+    const s = sprites.bottom;
+    s.visible = true;
+    s.frame = 1; // Кадр удара
+    
+    // Авто-возврат через 100мс
+    setTimeout(() => { 
+        if(s.visible) s.frame = 0; 
+    }, 100);
+    // Скрытие через 200мс
+    setTimeout(() => { 
+        if (state.currentPhase !== PHASES.TAP) s.visible = false;
+    }, 200);
 }
 
 function checkPenaltyTap(e, zoneName) {
@@ -502,17 +535,12 @@ function triggerSuccess(type, x, y) {
     if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
     
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
-    
     const finalPts = Math.floor(pts * state.combo);
     state.score += finalPts;
     updateScoreUI();
-    
     playZoneSound(type);
 
-    if (Math.random() > 0.6) {
-        spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
-    }
-    
+    if (Math.random() > 0.6) spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
     if (Math.random() > 0.7) tg.HapticFeedback.impactOccurred('light');
 }
 
@@ -532,8 +560,6 @@ function spawnFloatingText(text, x, y, className) {
     setTimeout(() => el.remove(), 800);
 }
 
-// --- 8. FINISH ---
-
 function finishGame() {
     state.isPlaying = false;
     clearInterval(window.secTimerId);
@@ -543,33 +569,38 @@ function finishGame() {
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
     
+    // Скрываем игровые спрайты
+    sprites.head.visible = false;
+    sprites.body.visible = false;
+    sprites.bottom.visible = false;
+    if(els.baseCucumber) els.baseCucumber.style.opacity = 1;
+
     const isWin = state.score >= CONFIG.WIN_SCORE;
     
+    // Показываем Win/Lose спрайты
     if (sprites.win.el) sprites.win.el.style.display = 'none';
     if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
     if (isWin) {
         if (audio.win) audio.win.play().catch(()=>{});
-        if (sprites.win.el) sprites.win.el.style.display = 'block';
-        sprites.win.active = true;
-        sprites.win.forcePlay = true;
+        sprites.win.visible = true;
+        sprites.win.el.style.display = 'block';
         els.ui.resultTitle.textContent = "ПОБЕДА!";
         els.ui.resultTitle.style.color = "#55ff55";
         els.ui.resultMsg.textContent = "Огурец доволен!";
     } else {
         if (audio.lose) audio.lose.play().catch(()=>{});
-        if (sprites.lose.el) sprites.lose.el.style.display = 'block';
-        sprites.lose.active = true;
-        sprites.lose.forcePlay = true;
+        sprites.lose.visible = true;
+        sprites.lose.el.style.display = 'block';
         els.ui.resultTitle.textContent = "ФИАСКО";
         els.ui.resultTitle.style.color = "#ff5555";
         els.ui.resultMsg.textContent = "Нужно больше стараться...";
     }
 
-    // ВОТ ЗДЕСЬ РАНЬШЕ БЫЛ ОБРЫВ. ТЕПЕРЬ ИСПРАВЛЕНО:
+    // Запускаем луп для результата (чтобы анимация победы играла)
     const resultLoop = () => {
         if (!state.isPlaying && els.screens.result.classList.contains('active')) {
-            updateSprites();
+            renderSprites(); // Вызываем рендер для win/lose
             requestAnimationFrame(resultLoop);
         }
     };
