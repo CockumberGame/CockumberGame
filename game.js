@@ -15,7 +15,7 @@ const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
     LEVEL_TIME: 60,
-    WIN_SCORE: 4500,
+    WIN_SCORE: 1500,
     
     SCORE: {
         HEAD_SPIN: 2,
@@ -24,14 +24,14 @@ const CONFIG = {
         TAP: 5,            // Подняли очки за точный тап
         TAP_DOUBLE: 15,    // Очки за двойной тап
         PENALTY_BASE: 15,
-        MAX_COMBO: 2.5,    // Чуть выше комбо
-        BONUS_GENTLE: 13,
+        MAX_COMBO: 2.8,    // Чуть выше комбо
+        BONUS_GENTLE: 20,
         BONUS_BURST_MULT: 2
     },
 
     // НАСТРОЙКИ ТАПА
     TAP_MECHANIC: {
-        SPAWN_INTERVAL: 800, // Пауза между появлением целей (мс)
+        SPAWN_INTERVAL: 250, // Пауза между появлением целей (мс)
         DOUBLE_WINDOW: 200,  // Время (мс) между касаниями для засчитывания двойного тапа
     },
 
