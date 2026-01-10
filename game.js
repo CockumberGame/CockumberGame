@@ -1,56 +1,71 @@
 /* ==================================================================
-   COCKUMBER RUBBER - CORE LOGIC
+   COCKUMBER RUBBER - v2.0 (Sprite Sheet & Balance Fix)
    ================================================================== */
 
-// --- 1. CONFIG & SETUP ---
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
-// Блокируем вертикальные свайпы (закрытие) на iOS
-tg.enableClosingConfirmation(); 
 
+// === CONFIGURATION ===
 const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
-    LEVEL_TIME: 60,       // Секунды
+    LEVEL_TIME: 60,
     WIN_SCORE: 2000,
-    MARGIN_PERCENT: 0.08, // 8% зоны - это безопасный отступ (буфер)
-    PHASE_MIN_TIME: 3000, // Мин время одной фазы (мс)
-    PHASE_MAX_TIME: 6000, // Макс время одной фазы (мс)
     
-    // Настройки очков
+    // НАСТРОЙКИ БАЛАНСА
     SCORE: {
-        HEAD_SPIN: 15,    // За оборот
-        BODY_RUB: 12,     // За свайп
-        TAP: 15,          // За тап
-        PENALTY_BASE: 5   // Базовый штраф
-    }
+        HEAD_SPIN: 3,    // Очков за действие
+        BODY_RUB: 2,     
+        TAP: 5,          
+        PENALTY_BASE: 5,
+        MAX_COMBO: 2.0   // Макс множитель (не 3.0, чтобы не улетало)
+    },
+
+    // НАСТРОЙКИ СПРАЙТОВ (ВАЖНО!)
+    // Сколько кадров в твоих полосках? Я ставлю 5. Если их 8 - поставь 8.
+    FRAMES_COUNT: 5, 
+    ANIM_SPEED: 0.5, // Скорость анимации (0.0 - 1.0)
+
+    // ТАЙМИНГИ
+    PHASE_MIN_TIME: 3000,
+    PHASE_MAX_TIME: 6000,
+    PAUSE_TIME: 1000 // Пауза между фазами (сек)
 };
 
-// Перечисления фаз
 const PHASES = {
     HEAD: 'head',
     BODY: 'body',
-    TAP: 'tap'
+    TAP: 'tap',
+    WAIT: 'wait' // Фаза ожидания
 };
 
-// Глобальное состояние
+// === STATE ===
 let state = {
     isPlaying: false,
     score: 0,
     timeRemaining: CONFIG.LEVEL_TIME,
-    currentPhase: null,
-    phaseEndTime: 0,      // Timestamp окончания текущей фазы
-    penaltyMultiplier: 1, // Множитель штрафа (растет при ошибках)
+    currentPhase: PHASES.WAIT,
+    phaseEndTime: 0,
+    penaltyMultiplier: 1,
     combo: 1.0,
     lastActionTime: 0,
 };
 
-// Таймеры
-let loopId = null;     // requestAnimationFrame
-let secTimerId = null; // setInterval (секунды)
+// Менеджер анимаций (хранит текущий кадр для каждого спрайта)
+let sprites = {
+    head: { frame: 0, dir: 1, active: false, el: null },
+    body: { frame: 0, dir: 1, active: false, el: null },
+    bottom: { frame: 0, dir: 1, active: false, el: null },
+    win: { frame: 0, dir: 1, active: false, el: null },   // Новое
+    lose: { frame: 0, dir: 1, active: false, el: null }   // Новое
+};
 
-// Кеш DOM элементов (чтобы не искать их каждый кадр)
+// Таймеры
+let loopId = null;
+let secTimerId = null;
+
+// DOM Elements Cache
 const els = {
     container: document.getElementById('game-container'),
     screens: {
@@ -64,8 +79,6 @@ const els = {
         scoreText: document.getElementById('score-text'),
         phaseBarFill: document.getElementById('phase-timer-fill'),
         phaseBarContainer: document.getElementById('phase-timer-container'),
-        combo: document.getElementById('combo-display'),
-        bestScore: document.getElementById('menu-best-score'),
         resultScore: document.getElementById('result-score-val'),
         resultTitle: document.getElementById('result-title'),
         resultMsg: document.getElementById('result-message')
@@ -73,7 +86,8 @@ const els = {
     zones: {
         head: document.getElementById('zone-head'),
         body: document.getElementById('zone-body'),
-        tap: document.getElementById('zone-tap')
+        tapLeft: document.getElementById('zone-tap-left'), // Новая ID
+        tapRight: document.getElementById('zone-tap-right') // Новая ID
     },
     icons: {
         head: document.getElementById('icon-head'),
@@ -81,57 +95,94 @@ const els = {
         tap1: document.getElementById('icon-tap-1'),
         tap2: document.getElementById('icon-tap-2')
     },
-    anims: {
-        head: document.getElementById('anim-head'),
-        body: document.getElementById('anim-body'),
-        bottom: document.getElementById('anim-bottom')
-    },
     particles: document.getElementById('particles-container')
 };
 
-// --- 2. RESIZE SYSTEM (SCALER) ---
+// --- 1. SETUP & RESIZE ---
+
+// Инициализация спрайтов (создаем div элементы динамически или берем существующие)
+function initSprites() {
+    // Удаляем старые, если были
+    const world = document.getElementById('world-layer');
+    
+    // Создаем структуру спрайтов
+    const createAnimEl = (id, imgName) => {
+        let el = document.getElementById(id);
+        if (!el) {
+            el = document.createElement('div');
+            el.id = id;
+            el.className = 'anim-sprite';
+            world.appendChild(el);
+        }
+        // Задаем картинку через CSS
+        el.style.backgroundImage = `url('assets/${imgName}')`;
+        // Размер фона = (Кол-во кадров * 100)%
+        el.style.backgroundSize = `${CONFIG.FRAMES_COUNT * 100}% 100%`;
+        return el;
+    };
+
+    sprites.head.el = createAnimEl('anim-head', 'anim_head.png');
+    sprites.body.el = createAnimEl('anim-body', 'anim_body.png');
+    sprites.bottom.el = createAnimEl('anim-bottom', 'anim_bottom.png');
+    
+    // Спрайты победы/поражения добавляем в result экран
+    const resContent = document.querySelector('.result-content');
+    // Удалим, если уже есть
+    const oldWin = document.getElementById('anim-win');
+    if(oldWin) oldWin.remove();
+    
+    sprites.win.el = document.createElement('div');
+    sprites.win.el.className = 'anim-sprite';
+    sprites.win.el.style.position = 'relative'; // В потоке
+    sprites.win.el.style.width = '200px'; 
+    sprites.win.el.style.height = '200px'; 
+    sprites.win.el.style.backgroundImage = `url('assets/anim_win.png')`;
+    sprites.win.el.style.backgroundSize = `${CONFIG.FRAMES_COUNT * 100}% 100%`;
+    sprites.win.el.style.display = 'none';
+    resContent.insertBefore(sprites.win.el, els.ui.resultScore.parentNode);
+
+    sprites.lose.el = sprites.win.el.cloneNode(true);
+    sprites.lose.el.style.backgroundImage = `url('assets/anim_lose.png')`;
+    resContent.insertBefore(sprites.lose.el, els.ui.resultScore.parentNode);
+}
 
 function resizeGame() {
     const winW = window.innerWidth;
     const winH = window.innerHeight;
-    
-    // Вычисляем масштаб, чтобы вписать 360x640 в экран
     const scale = Math.min(winW / CONFIG.REF_WIDTH, winH / CONFIG.REF_HEIGHT);
-    
     els.container.style.transform = `scale(${scale})`;
-    
-    // Центрирование через margin (так как transform scale работает от центра)
-    // Но в CSS у нас flex body, так что scale достаточно, если transform-origin верный.
-    // Мы зададим origin в CSS, но здесь продублируем для надежности.
     els.container.style.transformOrigin = 'center center';
 }
 
 window.addEventListener('resize', resizeGame);
-resizeGame(); // Первый вызов
+resizeGame();
 
-// --- 3. GAME LOOP & PHASE MANAGER ---
+// --- 2. GAME LOOP ---
 
 document.getElementById('btn-start').onclick = startGame;
 document.getElementById('btn-retry').onclick = startGame;
 
 function startGame() {
-    // Сброс состояния
+    initSprites(); // Подгружаем спрайты
+    
     state.score = 0;
     state.timeRemaining = CONFIG.LEVEL_TIME;
     state.combo = 1.0;
     state.penaltyMultiplier = 1;
     state.isPlaying = true;
+    state.currentPhase = PHASES.WAIT;
+    state.phaseEndTime = Date.now() + 1000; // Старт через 1 сек
 
-    // UI Сброс
     els.screens.menu.classList.remove('active');
     els.screens.result.classList.remove('active');
     els.screens.game.classList.add('active');
     els.ui.timerDigits.className = 'pixel-text timer-normal';
     
-    updateScoreUI();
-    pickNewPhase();
+    // Скрываем иконки
+    Object.values(els.icons).forEach(icon => icon.classList.add('hidden'));
     
-    // Запуск циклов
+    updateScoreUI();
+    
     if (loopId) cancelAnimationFrame(loopId);
     if (secTimerId) clearInterval(secTimerId);
     
@@ -141,21 +192,14 @@ function startGame() {
 
 function onSecondTick() {
     if (!state.isPlaying) return;
-    
     state.timeRemaining--;
     
-    // Обновление цифр и цвета
-    const t = state.timeRemaining;
-    els.ui.timerDigits.textContent = t;
-    
-    if (t <= 10) els.ui.timerDigits.className = 'pixel-text timer-crit';
-    else if (t <= 20) els.ui.timerDigits.className = 'pixel-text timer-orange';
-    else if (t <= 30) els.ui.timerDigits.className = 'pixel-text timer-warn';
-    else els.ui.timerDigits.className = 'pixel-text timer-normal';
+    els.ui.timerDigits.textContent = state.timeRemaining;
+    if (state.timeRemaining <= 10) els.ui.timerDigits.className = 'pixel-text timer-crit';
+    else if (state.timeRemaining <= 20) els.ui.timerDigits.className = 'pixel-text timer-orange';
+    else if (state.timeRemaining <= 30) els.ui.timerDigits.className = 'pixel-text timer-warn';
 
-    if (state.timeRemaining <= 0) {
-        finishGame();
-    }
+    if (state.timeRemaining <= 0) finishGame();
 }
 
 function gameLoop() {
@@ -163,87 +207,116 @@ function gameLoop() {
 
     const now = Date.now();
 
-    // 1. Проверка фазы
+    // 1. Анимация Спрайтов (Ping-Pong)
+    updateSprites();
+
+    // 2. Фазы
     if (now >= state.phaseEndTime) {
-        pickNewPhase();
+        if (state.currentPhase === PHASES.WAIT) {
+            pickNewPhase();
+        } else {
+            // Фаза закончилась -> Пауза
+            enterWaitPhase();
+        }
     }
 
-    // 2. Обновление бара фазы
-    const timeLeft = state.phaseEndTime - now;
-    const totalTime = state.phaseTotalTime;
-    const pct = Math.max(0, (timeLeft / totalTime) * 100);
-    els.ui.phaseBarFill.style.width = `${pct}%`;
-
-    // 3. Сброс комбо, если долго не было действий (2 сек)
-    if (now - state.lastActionTime > 2000 && state.combo > 1.0) {
-        state.combo = 1.0;
-        els.ui.combo.classList.add('hidden');
+    // 3. UI Бара фазы
+    if (state.currentPhase !== PHASES.WAIT) {
+        const timeLeft = state.phaseEndTime - now;
+        const totalTime = state.phaseTotalTime;
+        const pct = Math.max(0, (timeLeft / totalTime) * 100);
+        els.ui.phaseBarFill.style.width = `${pct}%`;
+    } else {
+        els.ui.phaseBarFill.style.width = '0%';
     }
 
     loopId = requestAnimationFrame(gameLoop);
 }
 
+// Апдейт кадров спрайтов
+function updateSprites() {
+    Object.keys(sprites).forEach(key => {
+        const s = sprites[key];
+        if (!s.active && !s.forcePlay) {
+            // Если не активен - сброс в 0 (или можно оставить плавное затухание)
+            if (s.frame > 0) s.frame = 0; 
+            s.el.style.opacity = 0;
+            return;
+        }
+
+        s.el.style.opacity = 1;
+        
+        // Логика "Пинг-Понг" анимации (0->1->2->3->4->3->2->1...)
+        // Скорость зависит от CONFIG.ANIM_SPEED (пропускаем кадры рендера)
+        if (Math.random() < CONFIG.ANIM_SPEED) {
+            s.frame += s.dir;
+            if (s.frame >= CONFIG.FRAMES_COUNT - 1) {
+                s.frame = CONFIG.FRAMES_COUNT - 1;
+                s.dir = -1; // Назад
+            } else if (s.frame <= 0) {
+                s.frame = 0;
+                s.dir = 1; // Вперед
+            }
+        }
+        
+        // Сдвигаем background-position
+        // Формула: (100 / (Frames - 1)) * FrameIndex
+        const pos = (100 / (CONFIG.FRAMES_COUNT - 1)) * s.frame;
+        s.el.style.backgroundPosition = `${pos}% 0%`;
+    });
+}
+
+function enterWaitPhase() {
+    state.currentPhase = PHASES.WAIT;
+    state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
+    
+    // Скрываем все иконки
+    Object.values(els.icons).forEach(icon => icon.classList.add('hidden'));
+    
+    // Останавливаем анимации
+    sprites.head.active = false;
+    sprites.body.active = false;
+    sprites.bottom.active = false;
+}
+
 function pickNewPhase() {
-    // Выбираем новую фазу, отличную от текущей (желательно)
     const phases = [PHASES.HEAD, PHASES.BODY, PHASES.TAP];
     let next = phases[Math.floor(Math.random() * phases.length)];
     
-    // 30% шанс повтора фазы, иначе меняем
-    if (next === state.currentPhase && Math.random() > 0.3) {
-        next = phases.find(p => p !== state.currentPhase);
-    }
-    
     state.currentPhase = next;
-    
-    // Время фазы (рандом)
     const duration = CONFIG.PHASE_MIN_TIME + Math.random() * (CONFIG.PHASE_MAX_TIME - CONFIG.PHASE_MIN_TIME);
     state.phaseTotalTime = duration;
     state.phaseEndTime = Date.now() + duration;
 
-    // Визуализация смены фазы
-    applyPhaseVisuals(next);
-}
-
-function applyPhaseVisuals(phase) {
-    // Скрываем все иконки
-    els.icons.head.classList.add('hidden');
-    els.icons.body.classList.add('hidden');
-    els.icons.tap1.classList.add('hidden');
-    els.icons.tap2.classList.add('hidden');
-    els.ui.phaseBarContainer.classList.remove('hidden');
-
-    // Вибрация о смене
+    // Визуал
     tg.HapticFeedback.notificationOccurred('success');
-
-    // Показываем нужные
-    switch(phase) {
-        case PHASES.HEAD:
-            els.icons.head.classList.remove('hidden');
-            break;
-        case PHASES.BODY:
-            els.icons.body.classList.remove('hidden');
-            break;
-        case PHASES.TAP:
-            els.icons.tap1.classList.remove('hidden');
-            els.icons.tap2.classList.remove('hidden');
-            break;
+    
+    if (next === PHASES.HEAD) els.icons.head.classList.remove('hidden');
+    if (next === PHASES.BODY) els.icons.body.classList.remove('hidden');
+    if (next === PHASES.TAP) {
+        els.icons.tap1.classList.remove('hidden');
+        els.icons.tap2.classList.remove('hidden');
     }
 }
 
-// --- 4. INPUT HANDLING & GESTURES ---
+// --- 3. INPUT HANDLING ---
 
-// Навешиваем слушатели
+// Запрет дефолтных свайпов
+document.addEventListener('touchmove', function(e) { e.preventDefault(); }, { passive: false });
+
+// Обработчики
 els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
 els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
 
-// Для тапов используем touchstart
-els.zones.tap.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
-// Также отлавливаем случайные тапы в других зонах для штрафов
+// Тапы (Left + Right)
+els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
+els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
+
+// Штрафы (случайные нажатия не туда)
 els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
 els.zones.body.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.BODY));
 
 
-// Вспомогательные переменные для жестов
 let gestureData = {
     headAngle: null,
     headAccumulator: 0,
@@ -251,183 +324,124 @@ let gestureData = {
     bodyAccumulator: 0
 };
 
-// Сброс при отпускании пальца
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
     gestureData.bodyLastY = null;
-    // Сбрасываем множитель штрафа при отпускании, чтобы дать шанс исправиться
-    state.penaltyMultiplier = 1;
+    // Остановка анимации при отпускании
+    sprites.head.active = false;
+    sprites.body.active = false;
+    sprites.bottom.active = false;
 });
 
 function handleInput(e, zoneName) {
-    if (!state.isPlaying) return;
+    if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     
-    // Получаем координаты касания
     const touch = e.touches[0];
-    const target = e.currentTarget; // Зона, по которой ведут пальцем
-
-    // === ГЛАВНАЯ ПРОВЕРКА: Правильная ли зона? ===
+    
+    // ПРОВЕРКА ФАЗЫ
     if (state.currentPhase !== zoneName) {
-        // Игрок трогает зону zoneName, но сейчас активна state.currentPhase.
-        // Нужно проверить Margin (отступ).
-        // Если он с краю зоны - прощаем. Если глубоко - штрафуем.
-        applyPenaltyLogic(touch, target);
+        applyPenalty(touch, 1);
         return;
     }
 
-    // Если зона правильная - обрабатываем механику
+    // ЛОГИКА
     switch (zoneName) {
         case PHASES.HEAD:
-            processHeadRotation(touch, target);
+            processHead(touch, e.currentTarget);
             break;
         case PHASES.BODY:
-            processBodyRub(touch);
+            processBody(touch);
             break;
         case PHASES.TAP:
-            // Для тапа просто засчитываем
             processTap(touch);
             break;
     }
 }
 
-// -- GESTURE: HEAD SPIN --
-function processHeadRotation(touch, target) {
+function processHead(touch, target) {
     const rect = target.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
-    
     const angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
     
     if (gestureData.headAngle !== null) {
-        let delta = angle - gestureData.headAngle;
-        // Нормализация перехода через -PI/PI
-        if (delta > Math.PI) delta -= 2 * Math.PI;
-        if (delta < -Math.PI) delta += 2 * Math.PI;
+        let delta = Math.abs(angle - gestureData.headAngle);
+        if (delta > Math.PI) delta = 2 * Math.PI - delta; // Коррекция перехода 360
         
-        gestureData.headAccumulator += Math.abs(delta);
+        gestureData.headAccumulator += delta;
         
-        // Порог: ~1/3 круга для срабатывания (чтобы было динамично)
-        if (gestureData.headAccumulator > 2.0) {
+        // Порог: ~0.5 радиана (около 30 градусов) для зачета
+        if (gestureData.headAccumulator > 0.5) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
+            sprites.head.active = true; // Включаем анимацию
         }
     }
     gestureData.headAngle = angle;
 }
 
-// -- GESTURE: BODY RUB --
-function processBodyRub(touch) {
+function processBody(touch) {
     const y = touch.clientY;
-    
     if (gestureData.bodyLastY !== null) {
         const delta = Math.abs(y - gestureData.bodyLastY);
         gestureData.bodyAccumulator += delta;
         
-        // Порог: 40px движения (в координатах экрана)
-        if (gestureData.bodyAccumulator > 40) {
+        // Порог: 20px свайпа
+        if (gestureData.bodyAccumulator > 20) {
             triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
             gestureData.bodyAccumulator = 0;
+            sprites.body.active = true;
         }
     }
     gestureData.bodyLastY = y;
 }
 
-// -- GESTURE: TAP --
 function processTap(touch) {
     triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY);
+    
+    // Для тапа анимация короткая (forcePlay - кастомное свойство)
+    sprites.bottom.active = true;
+    setTimeout(() => { sprites.bottom.active = false; }, 200);
 }
 
-// -- PENALTY LOGIC --
 function checkPenaltyTap(e, zoneName) {
-    if (!state.isPlaying) return;
-    if (state.currentPhase !== zoneName) {
-        applyPenaltyLogic(e.touches[0], e.currentTarget);
+    if (state.currentPhase !== zoneName && state.currentPhase !== PHASES.WAIT) {
+        applyPenalty(e.touches[0], 2); // Сильный штраф за тап не туда
     }
 }
 
-function applyPenaltyLogic(touch, targetZone) {
-    const rect = targetZone.getBoundingClientRect();
-    const h = rect.height;
+function applyPenalty(touch, severity) {
+    state.penaltyMultiplier += 0.1;
+    const penalty = Math.floor(CONFIG.SCORE.PENALTY_BASE * severity * state.penaltyMultiplier);
     
-    // Вычисляем относительную позицию касания внутри зоны (0.0 - 1.0)
-    const relativeY = (touch.clientY - rect.top) / h;
-    
-    // Определяем, насколько глубоко зашли
-    // Margin - это безопасная зона (например 8% с краев)
-    const margin = CONFIG.MARGIN_PERCENT;
-    
-    // Если мы в безопасной зоне (сверху или снизу), выходим
-    if (relativeY < margin || relativeY > (1 - margin)) {
-        return; // Прощаем
-    }
-    
-    // Иначе - ШТРАФ
-    state.penaltyMultiplier += 0.2; // Растет с каждым тиком
-    const penalty = Math.floor(CONFIG.SCORE.PENALTY_BASE * state.penaltyMultiplier);
-    
-    state.score -= penalty;
-    state.combo = 1.0; // Сброс комбо
-    els.ui.combo.classList.add('hidden');
-    
-    updateScoreUI();
-    
-    // Визуал штрафа (только иногда, чтобы не спамить DOM)
-    if (Math.random() > 0.7) {
+    if (Math.random() > 0.8) { // Не спамим штрафами
+        state.score = Math.max(0, state.score - penalty);
+        updateScoreUI();
         spawnFloatingText(`-${penalty}`, touch.clientX, touch.clientY, 'text-penalty');
         tg.HapticFeedback.notificationOccurred('error');
     }
 }
 
-
-// --- 5. SUCCESS & EFFECTS ---
-
 function triggerSuccess(type, x, y) {
-    // 1. Очки
-    let baseScore = 0;
-    if (type === PHASES.HEAD) baseScore = CONFIG.SCORE.HEAD_SPIN;
-    if (type === PHASES.BODY) baseScore = CONFIG.SCORE.BODY_RUB;
-    if (type === PHASES.TAP) baseScore = CONFIG.SCORE.TAP;
+    let pts = 0;
+    if (type === PHASES.HEAD) pts = CONFIG.SCORE.HEAD_SPIN;
+    if (type === PHASES.BODY) pts = CONFIG.SCORE.BODY_RUB;
+    if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
     
-    // Комбо
-    state.combo = Math.min(state.combo + 0.1, 3.0);
-    state.lastActionTime = Date.now();
-    
-    const finalScore = Math.floor(baseScore * state.combo);
-    state.score += finalScore;
+    state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
+    state.score += Math.floor(pts * state.combo);
     updateScoreUI();
     
-    // 2. Визуал текста
-    spawnFloatingText(`+${finalScore}`, x, y, 'text-score');
-    
-    // 3. Анимация спрайта (вспышка)
-    let animEl = null;
-    if (type === PHASES.HEAD) animEl = els.anims.head;
-    if (type === PHASES.BODY) animEl = els.anims.body;
-    if (type === PHASES.TAP) animEl = els.anims.bottom;
-    
-    if (animEl) {
-        animEl.style.opacity = 1;
-        clearTimeout(animEl.timeoutId);
-        animEl.timeoutId = setTimeout(() => {
-            animEl.style.opacity = 0;
-        }, 150);
+    // Редко показываем текст, чтобы не засорять экран
+    if (Math.random() > 0.7) {
+        spawnFloatingText(`+${Math.floor(pts*state.combo)}`, x, y, 'text-score');
     }
     
-    // 4. Комбо дисплей
-    if (state.combo >= 1.5) {
-        els.ui.combo.classList.remove('hidden');
-        els.ui.combo.textContent = `x${state.combo.toFixed(1)}`;
-    }
-    
-    // 5. Легкая вибрация
-    tg.HapticFeedback.impactOccurred('light');
+    if (Math.random() > 0.8) tg.HapticFeedback.impactOccurred('light');
 }
 
 function updateScoreUI() {
-    // Обновляем текст
-    els.ui.scoreText.textContent = `${Math.floor(state.score)} / ${CONFIG.WIN_SCORE}`;
-    
-    // Обновляем бар
+    els.ui.scoreText.textContent = `${state.score} / ${CONFIG.WIN_SCORE}`;
     const pct = Math.min(100, (state.score / CONFIG.WIN_SCORE) * 100);
     els.ui.progressFill.style.width = `${pct}%`;
 }
@@ -438,16 +452,11 @@ function spawnFloatingText(text, x, y, className) {
     el.className = `floating-text ${className}`;
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
-    
-    els.ui.particles.appendChild(el);
-    
-    // Удаляем после анимации
-    setTimeout(() => {
-        el.remove();
-    }, 800);
+    els.particles.appendChild(el);
+    setTimeout(() => el.remove(), 800);
 }
 
-// --- 6. GAME OVER ---
+// --- 4. FINISH ---
 
 function finishGame() {
     state.isPlaying = false;
@@ -457,29 +466,36 @@ function finishGame() {
     els.screens.game.classList.remove('active');
     els.screens.result.classList.add('active');
     
-    els.ui.resultScore.textContent = Math.floor(state.score);
+    els.ui.resultScore.textContent = state.score;
     
-    // Сохранение рекорда
-    const savedBest = localStorage.getItem('cockumber_best') || 0;
-    if (state.score > savedBest) {
-        localStorage.setItem('cockumber_best', Math.floor(state.score));
-        els.ui.bestScore.textContent = Math.floor(state.score);
-    } else {
-        els.ui.bestScore.textContent = savedBest;
-    }
+    // Логика победы/поражения и спрайтов
+    const isWin = state.score >= CONFIG.WIN_SCORE;
     
-    // Логика победы
-    if (state.score >= CONFIG.WIN_SCORE) {
+    sprites.win.el.style.display = 'none';
+    sprites.lose.el.style.display = 'none';
+    
+    // Запускаем анимацию в попапе результата
+    const finalSprite = isWin ? sprites.win : sprites.lose;
+    finalSprite.el.style.display = 'block';
+    finalSprite.active = true;
+    finalSprite.forcePlay = true; // Играть постоянно
+    
+    // Запускаем отдельный луп для result screen
+    const resultLoop = () => {
+        if (!state.isPlaying && els.screens.result.classList.contains('active')) {
+            updateSprites();
+            requestAnimationFrame(resultLoop);
+        }
+    };
+    resultLoop();
+
+    if (isWin) {
         els.ui.resultTitle.textContent = "ПОБЕДА!";
         els.ui.resultTitle.style.color = "#55ff55";
-        els.ui.resultMsg.textContent = "Огурец идеально натерт и доволен!";
+        els.ui.resultMsg.textContent = "Огурец доволен!";
     } else {
         els.ui.resultTitle.textContent = "ФИАСКО";
         els.ui.resultTitle.style.color = "#ff5555";
-        els.ui.resultMsg.textContent = `Не хватило ${CONFIG.WIN_SCORE - Math.floor(state.score)} очков.`;
+        els.ui.resultMsg.textContent = "Нужно больше стараться...";
     }
 }
-
-// Инит при загрузке (показываем рекорд)
-const initBest = localStorage.getItem('cockumber_best') || 0;
-els.ui.bestScore.textContent = initBest;
