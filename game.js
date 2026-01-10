@@ -36,7 +36,7 @@ const CONFIG = {
     },
 
     FRAMES: {
-        head: 5, 
+        head: 9, 
         body: 9, 
         bottom: 4, // 0=Idle, 1=Left, 2=Right, 3=Double
         win: 10, 
