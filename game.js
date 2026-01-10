@@ -1,10 +1,10 @@
 window.onerror = function(msg, url, line) {
-   // alert("Error: " + msg + "\nLine: " + line); 
+   // alert("Error: " + msg + "\nLine: " + line);
    return false;
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v5.0 (Pixel-Perfect Sprite Engine)
+   COCKUMBER RUBBER - CORE v6.0 (Perfect Sync)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -29,7 +29,7 @@ const CONFIG = {
         MAX_COMBO: 1.5
     },
 
-    // ВПИШИ СЮДА ТОЧНОЕ КОЛИЧЕСТВО КАДРОВ ИЗ ТВОИХ PNG
+    // ТВОИ КАДРЫ
     FRAMES: {
         head: 5,    
         body: 9,    
@@ -38,12 +38,10 @@ const CONFIG = {
         lose: 6
     },
 
-    // НАСТРОЙКИ ЧУВСТВИТЕЛЬНОСТИ (СИНХРОНИЗАЦИЯ)
-    // Head: сколько радиан (угловой путь) надо пройти для смены 1 кадра
-    // Body: сколько пикселей надо пройти для смены 1 кадра
+    // ЧУВСТВИТЕЛЬНОСТЬ
     SCRUB: {
-        HEAD_STEP: 0.5, // ~30 градусов на 1 кадр
-        BODY_STEP: 15   // 15 пикселей свайпа на 1 кадр
+        HEAD_STEP: 0.5, 
+        BODY_STEP: 15   
     },
     
     THRESHOLDS: {
@@ -71,7 +69,6 @@ let state = {
 
 const audio = { head: [], body: [], tap: [], win: null, lose: null };
 
-// Спрайты
 let sprites = {
     head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
@@ -139,7 +136,6 @@ function initSprites() {
     const world = document.getElementById('world-layer');
     if(!world) return;
     
-    // Создание DOM элемента спрайта
     const createAnimEl = (id, imgName, frameCount) => {
         let el = document.getElementById(id);
         if (!el) {
@@ -149,18 +145,13 @@ function initSprites() {
             world.appendChild(el);
         }
         
-        // ЖЕСТКИЕ СТИЛИ ЧЕРЕЗ JS (Чтобы перебить любые ошибки CSS)
         el.style.position = 'absolute';
         el.style.top = '0';
         el.style.left = '0';
-        el.style.width = '360px';  // Размер вьюпорта
-        el.style.height = '640px'; // Размер вьюпорта
+        el.style.width = '360px'; 
+        el.style.height = '640px';
         el.style.backgroundImage = `url('assets/${imgName}')`;
         el.style.backgroundRepeat = 'no-repeat';
-        
-        // ВАЖНО: Размер фона в пикселях. 
-        // Ширина = Кол-во кадров * 360px. Высота = 640px.
-        // Это гарантирует, что 1 кадр займет ровно 360px.
         el.style.backgroundSize = `${frameCount * 360}px 640px`;
         el.style.backgroundPosition = `0px 0px`;
         
@@ -185,7 +176,6 @@ function initSprites() {
             el.style.height = '200px';
             el.style.backgroundImage = `url('assets/${img}')`;
             el.style.backgroundRepeat = 'no-repeat';
-            // Для превью (200px) мы используем %
             el.style.backgroundSize = `${frames * 100}% 100%`; 
             el.style.display = 'none';
             el.style.imageRendering = 'pixelated';
@@ -257,7 +247,7 @@ function gameLoop() {
     if (!state.isPlaying) return;
     const now = Date.now();
 
-    renderSprites(); // Рендер графики
+    renderSprites(); 
 
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
@@ -279,18 +269,17 @@ function gameLoop() {
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// === 5. SPRITE ENGINE (PIXEL PERFECT) ===
+// === 5. SPRITE ENGINE (SYNC & LOGIC) ===
 
-// Главная функция рендера
 function renderSprites() {
-    // 1. Спрайты результата (автоплей)
+    // Результат (автоплей)
     if (els.screens.result.classList.contains('active')) {
         ['win', 'lose'].forEach(name => {
             const s = sprites[name];
             if(s.visible && s.el) {
                 s.frame += 0.2; 
                 if (s.frame >= s.frames) s.frame = 0;
-                // Для экрана результата используем проценты, т.к. размер не 360px
+                // Для экрана результата (проценты)
                 const currentFrame = Math.floor(s.frame);
                 if (s.frames > 1) {
                     const pos = (100 / (s.frames - 1)) * currentFrame;
@@ -301,7 +290,7 @@ function renderSprites() {
         return;
     }
 
-    // 2. Игровые спрайты (Pixel Based)
+    // Игровые спрайты (Пиксели)
     let anyActive = false;
     ['head', 'body', 'bottom'].forEach(name => {
         const s = sprites[name];
@@ -311,13 +300,10 @@ function renderSprites() {
             s.el.style.opacity = 1;
             anyActive = true;
             
-            // Расчет позиции в ПИКСЕЛЯХ
-            // Сдвигаем фон влево на (FrameIndex * 360) пикселей
             const currentFrame = Math.floor(s.frame);
             const pixelShift = -(currentFrame * 360);
             
             s.el.style.backgroundPosition = `${pixelShift}px 0px`;
-            
         } else {
             s.el.style.opacity = 0;
         }
@@ -328,19 +314,40 @@ function renderSprites() {
     }
 }
 
-// Функция "Прокрутки" спрайта (Sync)
-function scrubSprite(name, deltaFrames) {
+/**
+ * scrubSprite
+ * isLoop: true (для вращения), false (для вертикали - упираемся в края)
+ */
+function scrubSprite(name, deltaFrames, isLoop = true) {
     const s = sprites[name];
     if (!s || !s.el) return;
 
     s.visible = true;
-    
-    // deltaFrames может быть 1 или -1
     s.frame += deltaFrames;
 
-    // Зацикливание
-    if (s.frame >= s.frames) s.frame = 0;
-    if (s.frame < 0) s.frame = s.frames - 1;
+    if (isLoop) {
+        // Зацикливание (для Головы)
+        if (s.frame >= s.frames) s.frame = 0;
+        if (s.frame < 0) s.frame = s.frames - 1;
+    } else {
+        // Упор в края (для Тела)
+        if (s.frame >= s.frames - 1) s.frame = s.frames - 1;
+        if (s.frame < 0) s.frame = 0;
+    }
+}
+
+// Установить кадр на основе позиции пальца (для Тела)
+function setSpriteFrameByPercent(name, percent) {
+    const s = sprites[name];
+    if (!s) return;
+    
+    // percent 0.0 -> 1.0
+    // Ограничиваем
+    let p = Math.max(0, Math.min(1, percent));
+    
+    // Вычисляем кадр
+    s.frame = p * (s.frames - 1);
+    s.visible = true;
 }
 
 function enterWaitPhase() {
@@ -387,7 +394,7 @@ function playZoneSound(type) {
     snd.play().catch(()=>{});
 }
 
-// === 6. INPUT HANDLING ===
+// === 6. INPUT HANDLING (FIXED SYNC) ===
 
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
@@ -399,18 +406,24 @@ if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => ha
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 
 if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
-if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.BODY));
+
+// ДЛЯ ТЕЛА: Добавляем TouchStart для мгновенной синхронизации
+if(els.zones.body) {
+    els.zones.body.addEventListener('touchstart', (e) => {
+        checkPenaltyTap(e, PHASES.BODY);
+        // Если фаза правильная - синхронизируем кадр
+        if (state.currentPhase === PHASES.BODY) {
+            syncBodySprite(e.touches[0], e.currentTarget);
+        }
+    });
+}
+
 
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
     gestureData.bodyLastY = null;
-    
-    // Сбрасываем видимость не сразу, а с небольшой задержкой, 
-    // чтобы анимация не "мигала" при частых отрывах пальца
     setTimeout(() => {
-        // Если фаза все еще идет, можно оставить последний кадр видимым
-        // Но для четкости лучше скрывать, если нет input
-        // (Оставим пока как есть для плавности)
+       // Можно добавить логику скрытия, если нужно
     }, 200);
 });
 
@@ -419,10 +432,23 @@ let gestureData = {
     headAccumulator: 0,
     bodyLastY: null,
     bodyAccumulator: 0,
-    // Накопители для кадров
     accFrameHead: 0,
     accFrameBody: 0
 };
+
+// Функция синхронизации при касании
+function syncBodySprite(touch, target) {
+    const rect = target.getBoundingClientRect();
+    const relativeY = touch.clientY - rect.top;
+    const percent = relativeY / rect.height;
+    
+    // Мгновенно ставим кадр
+    setSpriteFrameByPercent('body', percent);
+    
+    // Сбрасываем данные для плавного старта
+    gestureData.bodyLastY = touch.clientY;
+    gestureData.accFrameBody = 0;
+}
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
@@ -451,22 +477,19 @@ function processHead(touch, target) {
         if (delta > Math.PI) delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         
-        // Очки
         gestureData.headAccumulator += Math.abs(delta);
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
         }
 
-        // Синхронизация спрайта
         gestureData.accFrameHead += delta;
         
-        // Если накопили достаточно вращения для смены кадра
+        // Вращение - это Loop (isLoop = true)
         if (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
-            // Направление: +1 или -1
             const dir = gestureData.accFrameHead > 0 ? 1 : -1;
-            scrubSprite('head', dir);
-            gestureData.accFrameHead = 0; // Сброс
+            scrubSprite('head', dir, true);
+            gestureData.accFrameHead = 0;
         }
     }
     gestureData.headAngle = angle;
@@ -475,22 +498,23 @@ function processHead(touch, target) {
 function processBody(touch) {
     const y = touch.clientY;
     if (gestureData.bodyLastY !== null) {
-        const delta = y - gestureData.bodyLastY; // Пиксели
+        const delta = y - gestureData.bodyLastY; 
         
-        // Очки
         gestureData.bodyAccumulator += Math.abs(delta);
         if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
             triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
             gestureData.bodyAccumulator = 0;
         }
 
-        // Синхронизация спрайта
         gestureData.accFrameBody += delta;
         
         if (Math.abs(gestureData.accFrameBody) > CONFIG.SCRUB.BODY_STEP) {
-            // Вниз (>0) -> кадр вперед, Вверх (<0) -> кадр назад
+            // Если двигаем ВНИЗ (delta > 0) -> кадр ВПЕРЕД (1)
+            // Если это инвертировано для твоего спрайта, поменяй 1 и -1 местами
             const dir = gestureData.accFrameBody > 0 ? 1 : -1;
-            scrubSprite('body', dir);
+            
+            // Тело - это Slider (isLoop = false)
+            scrubSprite('body', dir, false);
             gestureData.accFrameBody = 0;
         }
     }
