@@ -67,7 +67,7 @@ const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
 const PHASE_TEXTS = {
     [PHASES.HEAD]: "КРУТИ ГОЛОВКУ!",
     [PHASES.BODY]: "ТРИ СТВОЛ!",
-    [PHASES.TAP]: "СЛЕДИ ЗА ЦЕЛЬЮ!",
+    [PHASES.TAP]: "ЦЕЛЬСЯ В ЯЙЦА!",
     [PHASES.WAIT]: "ГОТОВЬСЯ..."
 };
 
@@ -592,7 +592,7 @@ function processHead(touch, target) {
             
             state.phaseCounters.headTicks++;
             if (state.phaseCounters.headTicks >= CONFIG.GOALS.HEAD_TICKS) {
-                triggerBonus(CONFIG.SCORE.BONUS_GENTLE, "GENTLE!", 'text-gentle', 180, 200);
+                triggerBonus(CONFIG.SCORE.BONUS_GENTLE, "НЕЖНО!", 'text-gentle', 180, 200);
                 state.phaseCounters.headTicks = 0;
             }
         }
@@ -635,7 +635,7 @@ function processBody(touch, target) {
         if (state.strokeState === 2) {
             state.phaseCounters.bodyStrokes++;
             if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-                triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНО!", 'text-perfect', 180, 320);
+                triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
                 state.phaseCounters.bodyStrokes = 0; 
             }
         }
