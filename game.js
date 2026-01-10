@@ -1,13 +1,22 @@
 window.onerror = function(msg, url, line) {
-   alert("Ошибка: " + msg + "\nСтрока: " + line);
-   return true;
+   // Выводим ошибки на экран, чтобы ты видел их на телефоне
+   alert("Error: " + msg + "\nLine: " + line);
+   return false;
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - FINAL CORE v3.0 (Sound & Sprites Fix)
+   COCKUMBER RUBBER - FINAL CORE v3.1 (Fixed & Safe)
    ================================================================== */
 
-const tg = window.Telegram.WebApp;
+// Безопасная инициализация Telegram (чтобы работало и в браузере для тестов)
+const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
+    ready: () => {},
+    expand: () => {},
+    HapticFeedback: {
+        notificationOccurred: () => {},
+        impactOccurred: () => {}
+    }
+};
 tg.ready();
 tg.expand();
 
@@ -18,31 +27,29 @@ const CONFIG = {
     LEVEL_TIME: 60,
     WIN_SCORE: 2000,
     
-    // БАЛАНС ОЧКОВ (УРЕЗАНО)
+    // БАЛАНС ОЧКОВ
     SCORE: {
-        HEAD_SPIN: 2,     // Было 3
-        BODY_RUB: 1,      // Было 2
-        TAP: 3,           // Было 5
-        PENALTY_BASE: 10, // Сильнее штраф
-        MAX_COMBO: 1.5    // Меньше множитель
+        HEAD_SPIN: 2,
+        BODY_RUB: 1,
+        TAP: 3,
+        PENALTY_BASE: 10,
+        MAX_COMBO: 1.5
     },
 
-    // НАСТРОЙКИ СПРАЙТОВ (ВАЖНО: ВПИШИ СВОИ ЦИФРЫ!)
-    // Сколько кадров по горизонтали в каждом файле?
+    // НАСТРОЙКИ СПРАЙТОВ (Твои цифры)
     FRAMES: {
-        head: 5,    // Пример: 4 кадра в anim_head.png
-        body: 9,    // Пример: 8 кадров в anim_body.png
-        bottom: 2,  // Пример: 5 кадров в anim_bottom.png
+        head: 5,
+        body: 9,
+        bottom: 2,
         win: 10,
         lose: 6
     },
 
-    ANIM_SPEED: 0.4, // Скорость анимации (0.0 - 1.0)
+    ANIM_SPEED: 0.4,
     
-    // Пороги срабатывания (чтобы не спамить очками)
     THRESHOLDS: {
-        HEAD: 0.8, // Радиан (почти 45 градусов) для начисления
-        BODY: 40   // Пикселей для начисления
+        HEAD: 0.8,
+        BODY: 40
     },
 
     PHASE_MIN_TIME: 3000,
@@ -69,8 +76,7 @@ const audio = {
     body: [],
     tap: [],
     win: null,
-    lose: null,
-    activeSource: null // Текущий проигрываемый звук
+    lose: null
 };
 
 // Спрайты
@@ -83,50 +89,56 @@ let sprites = {
 };
 
 // DOM Elements
+// Используем try-catch на случай, если HTML не прогрузился, но скрипт запущен
+const getEl = (id) => document.getElementById(id);
+
 const els = {
-    container: document.getElementById('game-container'),
-    baseCucumber: document.getElementById('cucumber-base'), // Базовая картинка
+    container: getEl('game-container'),
+    baseCucumber: getEl('cucumber-base'),
     screens: {
-        menu: document.getElementById('screen-menu'),
-        game: document.getElementById('screen-game'),
-        result: document.getElementById('screen-result')
+        menu: getEl('screen-menu'),
+        game: getEl('screen-game'),
+        result: getEl('screen-result')
     },
     ui: {
-        timerDigits: document.getElementById('timer-digits'),
-        progressFill: document.getElementById('progress-fill'),
-        scoreText: document.getElementById('score-text'),
-        phaseBarFill: document.getElementById('phase-timer-fill'),
-        phaseBarContainer: document.getElementById('phase-timer-container'),
-        resultScore: document.getElementById('result-score-val'),
-        resultTitle: document.getElementById('result-title'),
-        resultMsg: document.getElementById('result-message')
+        timerDigits: getEl('timer-digits'),
+        progressFill: getEl('progress-fill'),
+        scoreText: getEl('score-text'),
+        phaseBarFill: getEl('phase-timer-fill'),
+        phaseBarContainer: getEl('phase-timer-container'),
+        resultScore: getEl('result-score-val'),
+        resultTitle: getEl('result-title'),
+        resultMsg: getEl('result-message')
     },
     zones: {
-        head: document.getElementById('zone-head'),
-        body: document.getElementById('zone-body'),
-        tapLeft: document.getElementById('zone-tap-left'),
-        tapRight: document.getElementById('zone-tap-right')
+        head: getEl('zone-head'),
+        body: getEl('zone-body'),
+        tapLeft: getEl('zone-tap-left'),
+        tapRight: getEl('zone-tap-right')
     },
     icons: {
-        head: document.getElementById('icon-head'),
-        body: document.getElementById('icon-body'),
-        tap1: document.getElementById('icon-tap-1'),
-        tap2: document.getElementById('icon-tap-2')
+        head: getEl('icon-head'),
+        body: getEl('icon-body'),
+        tap1: getEl('icon-tap-1'),
+        tap2: getEl('icon-tap-2')
     },
-    particles: document.getElementById('particles-container')
+    particles: getEl('particles-container')
 };
 
 // --- 3. INIT & ASSETS ---
 
-// Загрузка звуков
 function initAudio() {
     const load = (path) => {
+        // Создаем аудио объект, ошибки загрузки игнорируем (чтобы не крашилось)
         const a = new Audio(path);
         a.volume = 0.8;
+        a.onerror = () => console.log("Audio missing: " + path); 
         return a;
     };
 
-    // Загружаем по 3 вариации
+    // Очищаем массивы перед загрузкой (на всякий случай)
+    audio.head = []; audio.body = []; audio.tap = [];
+
     for(let i=1; i<=3; i++) {
         audio.head.push(load(`assets/sfx_head_${i}.mp3`));
         audio.body.push(load(`assets/sfx_body_${i}.mp3`));
@@ -136,9 +148,9 @@ function initAudio() {
     audio.lose = load('assets/sfx_lose.mp3');
 }
 
-// Инициализация спрайтов (CSS фиксы)
 function initSprites() {
     const world = document.getElementById('world-layer');
+    if(!world) return;
     
     const createAnimEl = (id, imgName, frameCount) => {
         let el = document.getElementById(id);
@@ -149,9 +161,8 @@ function initSprites() {
             world.appendChild(el);
         }
         el.style.backgroundImage = `url('assets/${imgName}')`;
-        // FIX: Ширина фона = кол-во кадров * 100%. Высота 100%.
         el.style.backgroundSize = `${frameCount * 100}% 100%`;
-        el.style.backgroundPosition = `0% 0%`; // Старт
+        el.style.backgroundPosition = `0% 0%`;
         return el;
     };
 
@@ -161,33 +172,37 @@ function initSprites() {
     
     // Result screens
     const resContent = document.querySelector('.result-content');
-    const oldWin = document.getElementById('anim-win');
-    if(oldWin) oldWin.remove();
-    
-    sprites.win.el = document.createElement('div');
-    sprites.win.el.id = 'anim-win';
-    sprites.win.el.className = 'anim-sprite';
-    sprites.win.el.style.position = 'relative'; 
-    sprites.win.el.style.width = '200px'; 
-    sprites.win.el.style.height = '200px'; 
-    sprites.win.el.style.backgroundImage = `url('assets/anim_win.png')`;
-    sprites.win.el.style.backgroundSize = `${sprites.win.frames * 100}% 100%`;
-    sprites.win.el.style.display = 'none';
-    resContent.insertBefore(sprites.win.el, els.ui.resultScore.parentNode);
+    if (resContent) {
+        const oldWin = document.getElementById('anim-win');
+        if(oldWin) oldWin.remove();
+        
+        sprites.win.el = document.createElement('div');
+        sprites.win.el.id = 'anim-win';
+        sprites.win.el.className = 'anim-sprite';
+        sprites.win.el.style.position = 'relative'; 
+        sprites.win.el.style.width = '200px'; 
+        sprites.win.el.style.height = '200px'; 
+        sprites.win.el.style.backgroundImage = `url('assets/anim_win.png')`;
+        sprites.win.el.style.backgroundSize = `${sprites.win.frames * 100}% 100%`;
+        sprites.win.el.style.display = 'none';
+        resContent.insertBefore(sprites.win.el, els.ui.resultScore.parentNode);
 
-    sprites.lose.el = sprites.win.el.cloneNode(true);
-    sprites.lose.el.id = 'anim-lose';
-    sprites.lose.el.style.backgroundImage = `url('assets/anim_lose.png')`;
-    sprites.lose.el.style.backgroundSize = `${sprites.lose.frames * 100}% 100%`;
-    resContent.insertBefore(sprites.lose.el, els.ui.resultScore.parentNode);
+        sprites.lose.el = sprites.win.el.cloneNode(true);
+        sprites.lose.el.id = 'anim-lose';
+        sprites.lose.el.style.backgroundImage = `url('assets/anim_lose.png')`;
+        sprites.lose.el.style.backgroundSize = `${sprites.lose.frames * 100}% 100%`;
+        resContent.insertBefore(sprites.lose.el, els.ui.resultScore.parentNode);
+    }
 }
 
 function resizeGame() {
     const winW = window.innerWidth;
     const winH = window.innerHeight;
     const scale = Math.min(winW / CONFIG.REF_WIDTH, winH / CONFIG.REF_HEIGHT);
-    els.container.style.transform = `scale(${scale})`;
-    els.container.style.transformOrigin = 'center center';
+    if(els.container) {
+        els.container.style.transform = `scale(${scale})`;
+        els.container.style.transformOrigin = 'center center';
+    }
 }
 
 window.addEventListener('resize', resizeGame);
@@ -195,11 +210,16 @@ resizeGame();
 
 // --- 4. GAME LOOP ---
 
-document.getElementById('btn-start').onclick = startGame;
-document.getElementById('btn-retry').onclick = startGame;
+// Проверка на существование кнопки перед навешиванием события
+if (document.getElementById('btn-start')) {
+    document.getElementById('btn-start').onclick = startGame;
+}
+if (document.getElementById('btn-retry')) {
+    document.getElementById('btn-retry').onclick = startGame;
+}
 
 function startGame() {
-    initAudio(); // Инит звука по клику (требование браузеров)
+    initAudio();
     initSprites();
     
     state.score = 0;
@@ -215,7 +235,9 @@ function startGame() {
     els.screens.game.classList.add('active');
     els.ui.timerDigits.className = 'pixel-text timer-normal';
     
-    Object.values(els.icons).forEach(icon => icon.classList.add('hidden'));
+    Object.values(els.icons).forEach(icon => {
+        if(icon) icon.classList.add('hidden');
+    });
     
     updateScoreUI();
     
@@ -243,7 +265,7 @@ function gameLoop() {
 
     const now = Date.now();
 
-    updateSprites(); // Анимация
+    updateSprites();
 
     // Фазы
     if (now >= state.phaseEndTime) {
@@ -267,13 +289,13 @@ function gameLoop() {
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// --- 5. SPRITE ENGINE (PING-PONG) ---
+// --- 5. SPRITE ENGINE ---
 function updateSprites() {
-    let anyActive = false;
-
     Object.keys(sprites).forEach(key => {
         const s = sprites[key];
         const totalFrames = s.frames;
+
+        if (!s.el) return;
 
         if (!s.active && !s.forcePlay) {
             s.frame = 0;
@@ -281,10 +303,8 @@ function updateSprites() {
             return;
         }
 
-        anyActive = true;
         s.el.style.opacity = 1;
 
-        // Скорость обновления
         if (Math.random() < CONFIG.ANIM_SPEED) {
             s.frame += s.dir;
             if (s.frame >= totalFrames - 1) {
@@ -296,8 +316,6 @@ function updateSprites() {
             }
         }
         
-        // Математика позиции фона:
-        // Если 5 кадров (0,1,2,3,4), то шаги: 0%, 25%, 50%, 75%, 100%
         if (totalFrames > 1) {
             const step = 100 / (totalFrames - 1);
             const pos = step * s.frame;
@@ -305,19 +323,19 @@ function updateSprites() {
         }
     });
 
-    // ХИТРОСТЬ: Если играет анимация головы/тела/низа - скрываем базовый огурец
-    // Это убирает эффект "двойного огурца"
     if (sprites.head.active || sprites.body.active || sprites.bottom.active) {
-        els.baseCucumber.style.opacity = 0;
+        if(els.baseCucumber) els.baseCucumber.style.opacity = 0;
     } else {
-        els.baseCucumber.style.opacity = 1;
+        if(els.baseCucumber) els.baseCucumber.style.opacity = 1;
     }
 }
 
 function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
-    Object.values(els.icons).forEach(icon => icon.classList.add('hidden'));
+    Object.values(els.icons).forEach(icon => {
+        if(icon) icon.classList.add('hidden');
+    });
     
     sprites.head.active = false;
     sprites.body.active = false;
@@ -328,7 +346,6 @@ function pickNewPhase() {
     const phases = [PHASES.HEAD, PHASES.BODY, PHASES.TAP];
     let next = phases[Math.floor(Math.random() * phases.length)];
     
-    // Меньше шанс повтора
     if (next === state.lastPhase && Math.random() > 0.4) {
          next = phases.find(p => p !== state.lastPhase);
     }
@@ -341,49 +358,50 @@ function pickNewPhase() {
 
     tg.HapticFeedback.notificationOccurred('success');
     
-    if (next === PHASES.HEAD) els.icons.head.classList.remove('hidden');
-    if (next === PHASES.BODY) els.icons.body.classList.remove('hidden');
+    if (next === PHASES.HEAD && els.icons.head) els.icons.head.classList.remove('hidden');
+    if (next === PHASES.BODY && els.icons.body) els.icons.body.classList.remove('hidden');
     if (next === PHASES.TAP) {
-        els.icons.tap1.classList.remove('hidden');
-        els.icons.tap2.classList.remove('hidden');
+        if(els.icons.tap1) els.icons.tap1.classList.remove('hidden');
+        if(els.icons.tap2) els.icons.tap2.classList.remove('hidden');
     }
 }
 
 // --- 6. AUDIO LOGIC ---
 function playZoneSound(type) {
-    if (!CONFIG.SCORE) return; // check init
-    
-    // Получаем массив звуков для зоны
     let pool = audio[type];
     if (!pool || pool.length === 0) return;
 
-    // Проверяем, играет ли уже какой-то звук из этого пула
     const isPlaying = pool.some(snd => !snd.paused);
-    
-    if (isPlaying) {
-        // Если играет - не прерываем, пусть доиграет (Noise Reduction)
-        return;
-    }
+    if (isPlaying) return;
 
-    // Выбираем случайный
     const snd = pool[Math.floor(Math.random() * pool.length)];
-    
-    // Сброс и плей
     snd.currentTime = 0;
-    snd.play().catch(e => console.log('Audio play error', e));
+    
+    // Оборачиваем в промис, чтобы избежать ошибок если автоплей запрещен
+    const playPromise = snd.play();
+    if (playPromise !== undefined) {
+        playPromise.catch(error => {
+            // console.log("Audio play prevented");
+        });
+    }
 }
-
 
 // --- 7. INPUT HANDLING ---
 
-// Global Listeners
-els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
-els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
-els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
-els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
-// Penalty listeners
-els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
-els.zones.body.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.BODY));
+// Запрещаем скролл
+document.addEventListener('touchmove', function(e) { 
+    if(e.target.closest('#game-container')) {
+        e.preventDefault(); 
+    }
+}, { passive: false });
+
+if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
+if(els.zones.body) els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
+if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
+if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
+
+if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
+if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.BODY));
 
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
@@ -429,7 +447,6 @@ function processHead(touch, target) {
         
         gestureData.headAccumulator += delta;
         
-        // THRESHOLD: Начисляем очки только если набрали 0.8 радиана
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
@@ -445,7 +462,6 @@ function processBody(touch) {
         const delta = Math.abs(y - gestureData.bodyLastY);
         gestureData.bodyAccumulator += delta;
         
-        // THRESHOLD: 40px свайпа для очка
         if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
             triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
             gestureData.bodyAccumulator = 0;
@@ -471,7 +487,6 @@ function applyPenalty(touch, severity) {
     state.penaltyMultiplier += 0.1;
     const penalty = Math.floor(CONFIG.SCORE.PENALTY_BASE * severity * state.penaltyMultiplier);
     
-    // Штрафуем с вероятностью (чтобы не убить сразу)
     if (Math.random() > 0.7) { 
         state.score = Math.max(0, state.score - penalty);
         updateScoreUI();
@@ -486,23 +501,18 @@ function triggerSuccess(type, x, y) {
     if (type === PHASES.BODY) pts = CONFIG.SCORE.BODY_RUB;
     if (type === PHASES.TAP) pts = CONFIG.SCORE.TAP;
     
-    // Логика комбо
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
     
-    // Финальные очки (округляем)
     const finalPts = Math.floor(pts * state.combo);
     state.score += finalPts;
     updateScoreUI();
     
-    // 1. ЗВУК
     playZoneSound(type);
 
-    // 2. ВИЗУАЛ (текст редко)
     if (Math.random() > 0.6) {
         spawnFloatingText(`+${finalPts}`, x, y, 'text-score');
     }
     
-    // 3. ВИБРАЦИЯ (редко)
     if (Math.random() > 0.7) tg.HapticFeedback.impactOccurred('light');
 }
 
@@ -535,21 +545,20 @@ function finishGame() {
     
     const isWin = state.score >= CONFIG.WIN_SCORE;
     
-    sprites.win.el.style.display = 'none';
-    sprites.lose.el.style.display = 'none';
+    if (sprites.win.el) sprites.win.el.style.display = 'none';
+    if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
-    // Play final sound
     if (isWin) {
-        if (audio.win) audio.win.play();
-        sprites.win.el.style.display = 'block';
+        if (audio.win) audio.win.play().catch(()=>{});
+        if (sprites.win.el) sprites.win.el.style.display = 'block';
         sprites.win.active = true;
         sprites.win.forcePlay = true;
         els.ui.resultTitle.textContent = "ПОБЕДА!";
         els.ui.resultTitle.style.color = "#55ff55";
         els.ui.resultMsg.textContent = "Огурец доволен!";
     } else {
-        if (audio.lose) audio.lose.play();
-        sprites.lose.el.style.display = 'block';
+        if (audio.lose) audio.lose.play().catch(()=>{});
+        if (sprites.lose.el) sprites.lose.el.style.display = 'block';
         sprites.lose.active = true;
         sprites.lose.forcePlay = true;
         els.ui.resultTitle.textContent = "ФИАСКО";
@@ -557,5 +566,12 @@ function finishGame() {
         els.ui.resultMsg.textContent = "Нужно больше стараться...";
     }
 
-    // Result screen loop
-    const resul
+    // ВОТ ЗДЕСЬ РАНЬШЕ БЫЛ ОБРЫВ. ТЕПЕРЬ ИСПРАВЛЕНО:
+    const resultLoop = () => {
+        if (!state.isPlaying && els.screens.result.classList.contains('active')) {
+            updateSprites();
+            requestAnimationFrame(resultLoop);
+        }
+    };
+    resultLoop();
+}
