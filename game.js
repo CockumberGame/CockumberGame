@@ -3,7 +3,7 @@ window.onerror = function(msg, url, line) {
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v9.0 (STREAKS, AUDIO POOL & IOS FIXES)
+   COCKUMBER RUBBER - CORE v10.0 (UI TEXT, BG ANIM & NEGATIVE SCORE)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -23,14 +23,10 @@ const CONFIG = {
     SCORE: {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
+        BODY_BONUS: 100,
         TAP: 3,
         PENALTY_BASE: 10,
-        MAX_COMBO: 1.5,
-        
-        // Бонусы
-        BONUS_PERFECT_STROKE: 100, // За 10 длинных движений
-        BONUS_GENTLE: 50,          // За 20 тиков вращения
-        BONUS_BURST_MULT: 2        // Множитель очков при Burst
+        MAX_COMBO: 1.5
     },
 
     FRAMES: {
@@ -42,18 +38,15 @@ const CONFIG = {
     THRESHOLDS: {
         HEAD: 0.6, 
         BODY: 20,
-        
-        // Для Perfect Stroke: границы (в % от высоты зоны)
-        BODY_TOP_LIMIT: 0.2,   // Верхние 20%
-        BODY_BOTTOM_LIMIT: 0.8 // Нижние 80%
+        BODY_TOP_LIMIT: 0.2,   
+        BODY_BOTTOM_LIMIT: 0.8 
     },
     
-    // Цели для бонусов
     GOALS: {
-        BODY_STROKES: 10, // Нужно 10 длинных проходов
-        HEAD_TICKS: 20,   // Нужно 20 начислений очков
-        TAP_BURST: 10,    // После 10 тапов начинается Burst
-        TAP_BURST_FREQ: 3 // Каждый 3-й тап - крит
+        BODY_STROKES: 10,
+        HEAD_TICKS: 26,   // Увеличено (+30%)
+        TAP_BURST: 10,
+        TAP_BURST_FREQ: 3 
     },
 
     PHASE_MIN_TIME: 4000,
@@ -62,6 +55,13 @@ const CONFIG = {
 };
 
 const PHASES = { HEAD: 'head', BODY: 'body', TAP: 'tap', WAIT: 'wait' };
+
+const PHASE_TEXTS = {
+    [PHASES.HEAD]: "НАТИРАЙ!",
+    [PHASES.BODY]: "ДВИГАЙ!",
+    [PHASES.TAP]: "ТАПАЙ ПО НИМ!",
+    [PHASES.WAIT]: "ГОТОВЬСЯ..."
+};
 
 // === 2. STATE ===
 let state = {
@@ -74,29 +74,21 @@ let state = {
     combo: 1.0,
     lastActionTime: 0,
     
-    // Счетчики для текущей фазы
-    phaseCounters: {
-        headTicks: 0,
-        bodyStrokes: 0,
-        taps: 0
-    },
-    
-    // Для логики Body Stroke
-    strokeState: 0 // 0-none, 1-wasAtTop, 2-wasAtBottom
+    phaseCounters: { headTicks: 0, bodyStrokes: 0, taps: 0 },
+    strokeState: 0
 };
 
-// Аудио Пул (Оптимизация для iOS)
 const audioPool = {
     head: [], body: [], tap: [], win: null, lose: null,
-    tapIndex: 0 // Индекс для циклического использования
+    tapIndex: 0
 };
 
 let sprites = {
     head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
     bottom: { frame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
-    win:    { frame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
-    lose:   { frame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
+    // Для результата используем отдельные объекты
+    resultAnim: { frame: 0, el: null, frames: 0, active: false } 
 };
 
 const getEl = (id) => document.getElementById(id);
@@ -115,9 +107,12 @@ const els = {
         scoreText: getEl('score-text'),
         phaseBarFill: getEl('phase-timer-fill'),
         phaseBarContainer: getEl('phase-timer-container'),
+        phaseText: getEl('phase-text'), // Текст фазы
+        
+        // Result Screen Elements (мы их будем пересобирать)
+        resultContent: document.querySelector('.result-content'),
         resultScore: getEl('result-score-val'),
         resultTitle: getEl('result-title'),
-        resultMsg: getEl('result-message'),
         btnRetry: getEl('btn-retry'),
         btnNext: getEl('btn-next'),
         combo: getEl('combo-display')
@@ -137,7 +132,7 @@ const els = {
     particles: getEl('particles-container')
 };
 
-// === 3. INIT & AUDIO ===
+// === 3. INIT ===
 
 function initAudio() {
     const load = (path) => {
@@ -146,46 +141,18 @@ function initAudio() {
         a.onerror = () => {}; 
         return a;
     };
+    audioPool.head = []; audioPool.body = []; audioPool.tap = [];
     
-    // Загружаем основные звуки
     for(let i=1; i<=3; i++) {
         audioPool.head.push(load(`assets/sfx_head_${i}.mp3`));
         audioPool.body.push(load(`assets/sfx_body_${i}.mp3`));
     }
-    
-    // Создаем ПУЛ для тапов (10 штук одного звука/микса), чтобы не создавать new Audio при клике
-    // Это уберет лаги на iPhone
-    audioPool.tap = [];
     for(let i=0; i<10; i++) {
-        // Чередуем звуки 1, 2, 3
         const num = (i % 3) + 1; 
         audioPool.tap.push(load(`assets/sfx_tap_${num}.mp3`));
     }
-    
     audioPool.win = load('assets/sfx_win.mp3');
     audioPool.lose = load('assets/sfx_lose.mp3');
-}
-
-function playSound(type) {
-    if (type === PHASES.TAP) {
-        // Циклический перебор пула (Round Robin)
-        const snd = audioPool.tap[audioPool.tapIndex];
-        // Сброс времени обязателен для повтора
-        if (snd.currentTime > 0) snd.currentTime = 0;
-        snd.play().catch(()=>{});
-        
-        audioPool.tapIndex++;
-        if (audioPool.tapIndex >= audioPool.tap.length) audioPool.tapIndex = 0;
-        return;
-    }
-    
-    // Для остальных зон - обычный рандом, если свободны
-    const pool = audioPool[type];
-    if (!pool || pool.some(s => !s.paused)) return; // Не спамим
-    
-    const snd = pool[Math.floor(Math.random() * pool.length)];
-    snd.currentTime = 0;
-    snd.play().catch(()=>{});
 }
 
 function initSprites() {
@@ -200,7 +167,6 @@ function initSprites() {
             el.className = 'anim-sprite';
             world.appendChild(el);
         }
-        
         el.style.position = 'absolute';
         el.style.top = '0'; el.style.left = '0';
         el.style.width = '360px'; el.style.height = '640px'; 
@@ -215,26 +181,7 @@ function initSprites() {
     sprites.body.el = createAnimEl('anim-body', 'anim_body.png', sprites.body.frames);
     sprites.bottom.el = createAnimEl('anim-bottom', 'anim_bottom.png', sprites.bottom.frames);
     
-    const resContent = document.querySelector('.result-content');
-    if (resContent) {
-        const setupResultSprite = (id, img, frames) => {
-            let old = document.getElementById(id);
-            if(old) old.remove();
-            let el = document.createElement('div');
-            el.id = id;
-            el.style.position = 'relative';
-            el.style.width = '200px'; el.style.height = '200px';
-            el.style.backgroundImage = `url('assets/${img}')`;
-            el.style.backgroundRepeat = 'no-repeat';
-            el.style.backgroundSize = `${frames * 100}% 100%`; 
-            el.style.display = 'none';
-            el.style.imageRendering = 'pixelated';
-            resContent.insertBefore(el, els.ui.resultScore.parentNode);
-            return el;
-        };
-        sprites.win.el = setupResultSprite('anim-win', 'anim_win.png', sprites.win.frames);
-        sprites.lose.el = setupResultSprite('anim-lose', 'anim_lose.png', sprites.lose.frames);
-    }
+    // Спрайт результата создадим динамически при финише
 }
 
 function resizeGame() {
@@ -296,7 +243,6 @@ function gameLoop() {
     const now = Date.now();
     renderSprites();
     
-    // Фазы
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
             pickNewPhase();
@@ -305,7 +251,6 @@ function gameLoop() {
         }
     }
 
-    // Падение комбо
     if (now - state.lastActionTime > 1500) {
         if (state.combo > 1.0) {
             state.combo = Math.max(1.0, state.combo - 0.01);
@@ -313,7 +258,6 @@ function gameLoop() {
         }
     }
 
-    // Бар фазы
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const pct = Math.max(0, (timeLeft / state.phaseTotalTime) * 100);
@@ -336,21 +280,19 @@ function updateComboUI() {
     }
 }
 
-// === 5. SPRITE RENDER ===
+// === 5. RENDER ===
 function renderSprites() {
+    // Результат (Авто плей для фона)
     if (els.screens.result.classList.contains('active')) {
-        ['win', 'lose'].forEach(name => {
-            const s = sprites[name];
-            if(s.visible && s.el) {
-                s.frame += 0.2; 
-                if (s.frame >= s.frames) s.frame = 0;
-                const currentFrame = Math.floor(s.frame);
-                if (s.frames > 1) {
-                    const pos = (100 / (s.frames - 1)) * currentFrame;
-                    s.el.style.backgroundPosition = `${pos}% 0%`;
-                }
-            }
-        });
+        const s = sprites.resultAnim;
+        if(s.active && s.el) {
+            s.frame += 0.2; 
+            if (s.frame >= s.frames) s.frame = 0;
+            // Для фона 360px используем пиксели
+            const currentFrame = Math.floor(s.frame);
+            const pixelShift = -(currentFrame * 360);
+            s.el.style.backgroundPosition = `${pixelShift}px 0px`;
+        }
         return;
     }
 
@@ -358,12 +300,17 @@ function renderSprites() {
     ['head', 'body', 'bottom'].forEach(name => {
         const s = sprites[name];
         if (!s.el) return;
+        
+        // Оптимизация: не меняем DOM, если кадр тот же (почти)
         if (s.visible) {
             s.el.style.opacity = 1;
             anyActive = true;
             const currentFrame = Math.floor(s.frame);
-            const pixelShift = -(currentFrame * 360);
-            s.el.style.backgroundPosition = `${pixelShift}px 0px`;
+            // Защита от NaN
+            if(!isNaN(currentFrame)) {
+                const pixelShift = -(currentFrame * 360);
+                s.el.style.backgroundPosition = `${pixelShift}px 0px`;
+            }
         } else {
             s.el.style.opacity = 0;
         }
@@ -402,18 +349,21 @@ function enterWaitPhase() {
     sprites.head.visible = false;
     sprites.body.visible = false;
     sprites.bottom.visible = false;
+    
+    // Обновляем текст
+    if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[PHASES.WAIT];
 }
 
 function pickNewPhase() {
     const phases = [PHASES.HEAD, PHASES.BODY, PHASES.TAP];
     let next = phases[Math.floor(Math.random() * phases.length)];
     if (next === state.lastPhase && Math.random() > 0.4) next = phases.find(p => p !== state.lastPhase);
+    
     state.lastPhase = next;
     state.currentPhase = next;
     
-    // Сброс счетчиков фазы
     state.phaseCounters = { headTicks: 0, bodyStrokes: 0, taps: 0 };
-    state.strokeState = 0; // Сброс состояния для трения
+    state.strokeState = 0; 
 
     tg.HapticFeedback.impactOccurred('light');
 
@@ -421,16 +371,36 @@ function pickNewPhase() {
     state.phaseTotalTime = duration;
     state.phaseEndTime = Date.now() + duration;
 
+    // UI Updates
     if (next === PHASES.HEAD && els.icons.head) els.icons.head.classList.remove('hidden');
     if (next === PHASES.BODY && els.icons.body) els.icons.body.classList.remove('hidden');
     if (next === PHASES.TAP) {
         if(els.icons.tap1) els.icons.tap1.classList.remove('hidden');
         if(els.icons.tap2) els.icons.tap2.classList.remove('hidden');
     }
+    
+    if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[next];
 }
 
-// === 6. INPUT HANDLING ===
+function playSound(type) {
+    if (type === PHASES.TAP) {
+        const snd = audioPool.tap[audioPool.tapIndex];
+        if (snd.currentTime > 0) snd.currentTime = 0;
+        snd.play().catch(()=>{});
+        audioPool.tapIndex++;
+        if (audioPool.tapIndex >= audioPool.tap.length) audioPool.tapIndex = 0;
+        return;
+    }
+    
+    const pool = audioPool[type];
+    if (!pool || pool.some(s => !s.paused)) return;
+    
+    const snd = pool[Math.floor(Math.random() * pool.length)];
+    snd.currentTime = 0;
+    snd.play().catch(()=>{});
+}
 
+// === INPUT ===
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
@@ -441,16 +411,8 @@ if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => ha
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 
 if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
-// Важно: на body слушаем и move для логики
-if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => {
-    // Сброс при новом касании? Нет, пусть продолжают
-});
-// Сброс при отпускании
-if(els.zones.body) els.zones.body.addEventListener('touchend', (e) => {
-    // Если палец убран, можно сбросить "половинчатый" штрих
-    state.strokeState = 0; 
-    setTimeout(() => { if (state.currentPhase === PHASES.BODY) sprites.body.visible = false; }, 100);
-});
+if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => startBodyStroke(e));
+if(els.zones.body) els.zones.body.addEventListener('touchend', (e) => endBodyStroke(e));
 
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
@@ -460,8 +422,28 @@ window.addEventListener('touchend', () => {
 
 let gestureData = {
     headAngle: null, headAccumulator: 0, accFrameHead: 0,
-    bodyLastY: null, bodyAccumulator: 0
+    bodyLastY: null, bodyAccumulator: 0,
+    strokeStartY: 0, strokeMinY: 9999, strokeMaxY: 0
 };
+
+function startBodyStroke(e) {
+    if (state.currentPhase !== PHASES.BODY) {
+        checkPenaltyTap(e, PHASES.BODY);
+        return;
+    }
+    const touch = e.touches[0];
+    gestureData.strokeStartY = touch.clientY;
+    gestureData.strokeMinY = touch.clientY;
+    gestureData.strokeMaxY = touch.clientY;
+}
+
+function endBodyStroke(e) {
+    if (state.currentPhase !== PHASES.BODY) return;
+    const dist = gestureData.strokeMaxY - gestureData.strokeMinY;
+    const zoneH = els.zones.body.offsetHeight;
+    if (dist < zoneH * 0.1) return;
+    // Оставлено место для доп логики
+}
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
@@ -471,7 +453,6 @@ function handleInput(e, zoneName) {
         applyPenalty(touch, 1);
         return;
     }
-
     state.lastActionTime = Date.now();
 
     switch (zoneName) {
@@ -492,22 +473,18 @@ function processHead(touch, target) {
         if (delta > Math.PI) delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         
-        // 1. Очки
         gestureData.headAccumulator += Math.abs(delta);
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
             
-            // LOGIC: GENTLE TOUCH (Накопление)
             state.phaseCounters.headTicks++;
             if (state.phaseCounters.headTicks >= CONFIG.GOALS.HEAD_TICKS) {
-                // BONUS!
                 triggerBonus(CONFIG.SCORE.BONUS_GENTLE, "GENTLE TOUCH!", 'text-gentle', 180, 200);
-                state.phaseCounters.headTicks = 0; // Сброс, можно получить еще раз
+                state.phaseCounters.headTicks = 0;
             }
         }
 
-        // 2. Анимация
         gestureData.accFrameHead += delta;
         if (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
             const dir = gestureData.accFrameHead > 0 ? 1 : -1;
@@ -524,30 +501,18 @@ function processBody(touch, target) {
     let percent = (y - rect.top) / rect.height;
     mapSpriteToPosition('body', percent);
     
-    // --- LOGIC: PERFECT STROKE (Cross the Lines) ---
-    // state.strokeState: 0=Нигде, 1=Был вверху, 2=Был внизу
-    
-    // Определяем зоны
-    const isAtTop = percent < CONFIG.THRESHOLDS.BODY_TOP_LIMIT;    // < 0.2
-    const isAtBottom = percent > CONFIG.THRESHOLDS.BODY_BOTTOM_LIMIT; // > 0.8
+    // LOGIC: PERFECT STROKE (Cross Lines)
+    const isAtTop = percent < CONFIG.THRESHOLDS.BODY_TOP_LIMIT;    
+    const isAtBottom = percent > CONFIG.THRESHOLDS.BODY_BOTTOM_LIMIT; 
     
     if (isAtTop) {
-        if (state.strokeState === 2) {
-            // Пришел снизу вверх!
-            completeBodyStroke(touch);
-        }
-        state.strokeState = 1; // Запомнили, что мы наверху
+        if (state.strokeState === 2) completeBodyStroke(touch);
+        state.strokeState = 1; 
     } else if (isAtBottom) {
-        if (state.strokeState === 1) {
-            // Пришел сверху вниз!
-            completeBodyStroke(touch);
-        }
-        state.strokeState = 2; // Запомнили, что мы внизу
+        if (state.strokeState === 1) completeBodyStroke(touch);
+        state.strokeState = 2; 
     }
-    // Если посередине - просто храним старый стейт (ждем, куда дойдет)
-    // ----------------------------------------------
 
-    // Очки за движение (как раньше)
     if (gestureData.bodyLastY !== null) {
         const delta = Math.abs(y - gestureData.bodyLastY);
         gestureData.bodyAccumulator += delta;
@@ -561,28 +526,24 @@ function processBody(touch, target) {
 
 function completeBodyStroke(touch) {
     state.phaseCounters.bodyStrokes++;
-    // Визуальный фидбек штриха? Можно добавить
-    
     if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
         triggerBonus(CONFIG.SCORE.BONUS_PERFECT_STROKE, "PERFECT STROKE!", 'text-perfect', 180, 320);
-        state.phaseCounters.bodyStrokes = 0; // Сброс
+        state.phaseCounters.bodyStrokes = 0; 
     }
 }
 
 function processTap(touch) {
     state.phaseCounters.taps++;
     
-    // Логика BURST
     let isBurst = false;
     if (state.phaseCounters.taps > CONFIG.GOALS.TAP_BURST) {
-        // Каждый 3-й тап после 10-го
         if ((state.phaseCounters.taps - CONFIG.GOALS.TAP_BURST) % CONFIG.GOALS.TAP_BURST_FREQ === 0) {
             isBurst = true;
         }
     }
 
     if (isBurst) {
-        triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY, true); // True передаем для множителя, но это не бонус-текст
+        triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY, true);
         spawnFloatingText("BURST!", touch.clientX, touch.clientY, 'text-burst');
         tg.HapticFeedback.notificationOccurred('warning');
     } else {
@@ -590,14 +551,10 @@ function processTap(touch) {
     }
     
     squashCucumber();
-    
     const s = sprites.bottom;
-    s.visible = true;
-    s.frame = 1;
+    s.visible = true; s.frame = 1;
     setTimeout(() => { if(s.visible) s.frame = 0; }, 100);
-    setTimeout(() => { 
-        if (state.currentPhase !== PHASES.TAP) s.visible = false;
-    }, 200);
+    setTimeout(() => { if (state.currentPhase !== PHASES.TAP) s.visible = false; }, 200);
 }
 
 function checkPenaltyTap(e, zoneName) {
@@ -612,16 +569,17 @@ function applyPenalty(touch, severity) {
     updateComboUI();
     const penalty = Math.floor(CONFIG.SCORE.PENALTY_BASE * severity * state.penaltyMultiplier);
     
+    // Negative score allowed now
+    state.score -= penalty;
+    updateScoreUI();
+    
     if (Math.random() > 0.7) { 
-        state.score = Math.max(0, state.score - penalty);
-        updateScoreUI();
         spawnFloatingText(`-${penalty}`, touch.clientX, touch.clientY, 'text-penalty');
         tg.HapticFeedback.notificationOccurred('error');
         shakeScreen();
     }
 }
 
-// Обычное начисление очков
 function triggerSuccess(type, x, y, isBurst = false) {
     let pts = 0;
     if (type === PHASES.HEAD) pts = CONFIG.SCORE.HEAD_SPIN;
@@ -643,11 +601,9 @@ function triggerSuccess(type, x, y, isBurst = false) {
     if (Math.random() > 0.7) tg.HapticFeedback.impactOccurred('medium');
 }
 
-// Начисление БОНУСА (с текстом и эффектами)
 function triggerBonus(points, text, cssClass, x, y) {
     state.score += points;
     updateScoreUI();
-    
     spawnFloatingText(`${text} +${points}`, x, y, cssClass);
     shakeScreen();
     tg.HapticFeedback.notificationOccurred('success');
@@ -656,7 +612,7 @@ function triggerBonus(points, text, cssClass, x, y) {
 // === UI & FX ===
 function updateScoreUI() {
     els.ui.scoreText.textContent = `${state.score} / ${CONFIG.WIN_SCORE}`;
-    const pct = Math.min(100, (state.score / CONFIG.WIN_SCORE) * 100);
+    const pct = Math.min(100, (Math.max(0, state.score) / CONFIG.WIN_SCORE) * 100);
     els.ui.progressFill.style.width = `${pct}%`;
 }
 
@@ -702,20 +658,36 @@ function finishGame() {
     state.isPlaying = false;
     clearInterval(window.secTimerId);
     cancelAnimationFrame(window.loopId);
+    
     els.screens.game.classList.remove('active');
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
-    sprites.head.visible = false; sprites.body.visible = false; sprites.bottom.visible = false;
+    
+    // Очистка
+    sprites.head.visible = false; 
+    sprites.body.visible = false; 
+    sprites.bottom.visible = false;
     if(els.baseCucumber) els.baseCucumber.style.opacity = 1;
 
+    // Создаем/находим спрайт для фона результата
+    let bgSprite = sprites.resultAnim;
+    if (!bgSprite.el) {
+        const el = document.createElement('div');
+        el.className = 'result-bg-anim';
+        // Вставляем ДО контента, чтобы был фоном
+        els.screens.result.insertBefore(el, els.screens.result.firstChild);
+        bgSprite.el = el;
+    }
+    bgSprite.active = true;
+
     const isWin = state.score >= CONFIG.WIN_SCORE;
-    if (sprites.win.el) sprites.win.el.style.display = 'none';
-    if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
     if (isWin) {
         if (audioPool.win) audioPool.win.play().catch(()=>{});
-        if (sprites.win.el) sprites.win.el.style.display = 'block';
-        sprites.win.visible = true;
+        
+        bgSprite.el.style.backgroundImage = `url('assets/anim_win.png')`;
+        bgSprite.frames = CONFIG.FRAMES.win;
+        
         els.ui.resultTitle.textContent = "ПОБЕДА!";
         els.ui.resultTitle.className = "win-text";
         els.ui.resultMsg.textContent = "Уровень пройден!";
@@ -723,15 +695,40 @@ function finishGame() {
         if(els.ui.btnRetry) els.ui.btnRetry.classList.add('hidden');
     } else {
         if (audioPool.lose) audioPool.lose.play().catch(()=>{});
-        if (sprites.lose.el) sprites.lose.el.style.display = 'block';
-        sprites.lose.visible = true;
+        
+        bgSprite.el.style.backgroundImage = `url('assets/anim_lose.png')`;
+        bgSprite.frames = CONFIG.FRAMES.lose;
+        
         els.ui.resultTitle.textContent = "ПОРАЖЕНИЕ";
         els.ui.resultTitle.className = "lose-text";
         els.ui.resultMsg.textContent = "Не хватило очков...";
         if(els.ui.btnNext) els.ui.btnNext.classList.add('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.remove('hidden');
     }
+    
+    // CSS layout фиксы для контента результата
+    const resContent = document.querySelector('.result-content');
+    resContent.innerHTML = ''; // Очищаем и пересобираем
+    
+    const topBlock = document.createElement('div');
+    topBlock.className = 'result-top';
+    topBlock.appendChild(els.ui.resultTitle);
+    
+    const scoreBox = document.createElement('div');
+    scoreBox.className = 'final-score-box';
+    scoreBox.innerHTML = `<p>СЧЁТ:</p><p id="result-score-val">${state.score}</p>`;
+    topBlock.appendChild(scoreBox);
+    topBlock.appendChild(els.ui.resultMsg);
+    
+    const botBlock = document.createElement('div');
+    botBlock.className = 'result-bottom';
+    if(isWin) botBlock.appendChild(els.ui.btnNext);
+    else botBlock.appendChild(els.ui.btnRetry);
+    
+    resContent.appendChild(topBlock);
+    resContent.appendChild(botBlock);
 
+    // Запускаем луп
     const resultLoop = () => {
         if (!state.isPlaying && els.screens.result.classList.contains('active')) {
             renderSprites(); 

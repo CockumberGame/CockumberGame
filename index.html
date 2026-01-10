@@ -3,11 +3,7 @@
 <head>
     <meta charset="UTF-8">
     
-    <!-- Настройка Viewport для игр:
-         - user-scalable=no: запрет зума
-         - viewport-fit=cover: использование всей площади экрана (для iPhone с челкой)
-         - maximum-scale=1.0: фиксация масштаба
-    -->
+    <!-- Настройка Viewport для игр -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     
     <!-- Настройки для iOS (PWA/WebApp) -->
@@ -30,15 +26,10 @@
 </head>
 <body>
 
-    <!-- Обертка приложения -->
     <div id="app-wrapper">
-        
-        <!-- ГЛАВНЫЙ ИГРОВОЙ КОНТЕЙНЕР (360x640) -->
         <div id="game-container">
 
-            <!-- ========================================== -->
-            <!-- ЭКРАН 1: МЕНЮ -->
-            <!-- ========================================== -->
+            <!-- === ЭКРАН 1: МЕНЮ === -->
             <div id="screen-menu" class="screen active">
                 <div class="menu-content">
                     <h1 class="game-title">COCKUMBER<br>RUBBER</h1>
@@ -50,9 +41,7 @@
                 </div>
             </div>
 
-            <!-- ========================================== -->
-            <!-- ЭКРАН 2: ГЕЙМПЛЕЙ -->
-            <!-- ========================================== -->
+            <!-- === ЭКРАН 2: ГЕЙМПЛЕЙ === -->
             <div id="screen-game" class="screen">
                 
                 <!-- СЛОЙ 0: ФОН -->
@@ -60,11 +49,10 @@
 
                 <!-- СЛОЙ 1: ИГРОВОЙ МИР -->
                 <div id="world-layer">
-                    <!-- Базовый спрайт огурца -->
+                    <!-- Базовый спрайт -->
                     <img src="assets/cucumber_base.png" id="cucumber-base" class="sprite" alt="cucumber">
 
-                    <!-- Оверлеи анимаций (DIV контейнеры для CSS спрайтов) -->
-                    <!-- JS сам добавит background-image и настроит размеры -->
+                    <!-- Оверлеи анимаций (DIV) -->
                     <div id="anim-head" class="anim-sprite"></div>
                     <div id="anim-body" class="anim-sprite"></div>
                     <div id="anim-bottom" class="anim-sprite"></div>
@@ -93,7 +81,11 @@
                     <!-- Полоска таймера активной зоны -->
                     <div id="phase-timer-container" class="hidden">
                         <div id="phase-timer-fill"></div>
+                        <div id="phase-text">ГОТОВЬСЯ...</div>
                     </div>
+
+                    <!-- Дисплей комбо (ДОБАВЛЕНО) -->
+                    <div id="combo-display" class="pixel-text hidden">x1.0</div>
                 </div>
 
                 <!-- СЛОЙ 4: СЕНСОРНЫЙ (HITBOXES) -->
@@ -106,9 +98,7 @@
 
             </div>
 
-            <!-- ========================================== -->
-            <!-- ЭКРАН 3: РЕЗУЛЬТАТ -->
-            <!-- ========================================== -->
+            <!-- === ЭКРАН 3: РЕЗУЛЬТАТ === -->
             <div id="screen-result" class="screen">
                 <div class="result-content">
                     <h2 id="result-title">РЕЗУЛЬТАТ</h2>
@@ -128,7 +118,7 @@
         </div> 
     </div>
 
-    <!-- Подключаем логику (Версия 5.0) -->
-    <script src="game.js?v=5.0"></script>
+    <!-- Подключаем логику (Версия 10.0) -->
+    <script src="game.js?v=10.0"></script>
 </body>
 </html>
