@@ -1,10 +1,10 @@
 window.onerror = function(msg, url, line) {
-   // alert("Error: " + msg + "\nLine: " + line); // Раскомментируй для отладки
+   // alert("Error: " + msg + "\nLine: " + line); 
    return false;
 };
 
 /* ==================================================================
-   COCKUMBER RUBBER - FINAL CORE v4.0 (Scrubbing & Sync)
+   COCKUMBER RUBBER - CORE v5.0 (Pixel-Perfect Sprite Engine)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -29,24 +29,25 @@ const CONFIG = {
         MAX_COMBO: 1.5
     },
 
-    // Твои настройки кадров
+    // ВПИШИ СЮДА ТОЧНОЕ КОЛИЧЕСТВО КАДРОВ ИЗ ТВОИХ PNG
     FRAMES: {
-        head: 5,
-        body: 9,
-        bottom: 2,
+        head: 5,    
+        body: 9,    
+        bottom: 2,  
         win: 10,
         lose: 6
     },
 
-    // Настройки "Скраббинга" (Синхронизации)
-    // Сколько пикселей/радиан нужно пройти, чтобы сменить 1 кадр
-    SCRUB_SENSITIVITY: {
-        HEAD: 0.3, // Радианы (чем меньше, тем быстрее крутится анимация)
-        BODY: 15   // Пиксели (чем меньше, тем быстрее листаются кадры)
+    // НАСТРОЙКИ ЧУВСТВИТЕЛЬНОСТИ (СИНХРОНИЗАЦИЯ)
+    // Head: сколько радиан (угловой путь) надо пройти для смены 1 кадра
+    // Body: сколько пикселей надо пройти для смены 1 кадра
+    SCRUB: {
+        HEAD_STEP: 0.5, // ~30 градусов на 1 кадр
+        BODY_STEP: 15   // 15 пикселей свайпа на 1 кадр
     },
     
     THRESHOLDS: {
-        HEAD: 0.5, // Порог для очков
+        HEAD: 0.5, 
         BODY: 30
     },
 
@@ -70,7 +71,7 @@ let state = {
 
 const audio = { head: [], body: [], tap: [], win: null, lose: null };
 
-// Спрайты теперь хранят точную позицию
+// Спрайты
 let sprites = {
     head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
@@ -97,8 +98,8 @@ const els = {
         resultScore: getEl('result-score-val'),
         resultTitle: getEl('result-title'),
         resultMsg: getEl('result-message'),
-        btnRetry: getEl('btn-retry'), // Добавили
-        btnNext: getEl('btn-next'),    // Добавили
+        btnRetry: getEl('btn-retry'),
+        btnNext: getEl('btn-next'),
     },
     zones: {
         head: getEl('zone-head'),
@@ -138,6 +139,7 @@ function initSprites() {
     const world = document.getElementById('world-layer');
     if(!world) return;
     
+    // Создание DOM элемента спрайта
     const createAnimEl = (id, imgName, frameCount) => {
         let el = document.getElementById(id);
         if (!el) {
@@ -146,10 +148,22 @@ function initSprites() {
             el.className = 'anim-sprite';
             world.appendChild(el);
         }
+        
+        // ЖЕСТКИЕ СТИЛИ ЧЕРЕЗ JS (Чтобы перебить любые ошибки CSS)
+        el.style.position = 'absolute';
+        el.style.top = '0';
+        el.style.left = '0';
+        el.style.width = '360px';  // Размер вьюпорта
+        el.style.height = '640px'; // Размер вьюпорта
         el.style.backgroundImage = `url('assets/${imgName}')`;
-        // ФИКС ДУБЛИРОВАНИЯ: Ширина фона точно по кадрам
-        el.style.backgroundSize = `${frameCount * 100}% 100%`;
-        el.style.backgroundPosition = `0% 0%`;
+        el.style.backgroundRepeat = 'no-repeat';
+        
+        // ВАЖНО: Размер фона в пикселях. 
+        // Ширина = Кол-во кадров * 360px. Высота = 640px.
+        // Это гарантирует, что 1 кадр займет ровно 360px.
+        el.style.backgroundSize = `${frameCount * 360}px 640px`;
+        el.style.backgroundPosition = `0px 0px`;
+        
         return el;
     };
 
@@ -157,28 +171,30 @@ function initSprites() {
     sprites.body.el = createAnimEl('anim-body', 'anim_body.png', sprites.body.frames);
     sprites.bottom.el = createAnimEl('anim-bottom', 'anim_bottom.png', sprites.bottom.frames);
     
-    // Result screens
+    // Result screens setup
     const resContent = document.querySelector('.result-content');
     if (resContent) {
-        const oldWin = document.getElementById('anim-win');
-        if(oldWin) oldWin.remove();
-        
-        sprites.win.el = document.createElement('div');
-        sprites.win.el.id = 'anim-win';
-        sprites.win.el.className = 'anim-sprite';
-        sprites.win.el.style.position = 'relative'; 
-        sprites.win.el.style.width = '200px'; 
-        sprites.win.el.style.height = '200px'; 
-        sprites.win.el.style.backgroundImage = `url('assets/anim_win.png')`;
-        sprites.win.el.style.backgroundSize = `${sprites.win.frames * 100}% 100%`;
-        sprites.win.el.style.display = 'none';
-        resContent.insertBefore(sprites.win.el, els.ui.resultScore.parentNode);
+        const setupResultSprite = (id, img, frames) => {
+            let old = document.getElementById(id);
+            if(old) old.remove();
+            
+            let el = document.createElement('div');
+            el.id = id;
+            el.style.position = 'relative';
+            el.style.width = '200px';
+            el.style.height = '200px';
+            el.style.backgroundImage = `url('assets/${img}')`;
+            el.style.backgroundRepeat = 'no-repeat';
+            // Для превью (200px) мы используем %
+            el.style.backgroundSize = `${frames * 100}% 100%`; 
+            el.style.display = 'none';
+            el.style.imageRendering = 'pixelated';
+            resContent.insertBefore(el, els.ui.resultScore.parentNode);
+            return el;
+        };
 
-        sprites.lose.el = sprites.win.el.cloneNode(true);
-        sprites.lose.el.id = 'anim-lose';
-        sprites.lose.el.style.backgroundImage = `url('assets/anim_lose.png')`;
-        sprites.lose.el.style.backgroundSize = `${sprites.lose.frames * 100}% 100%`;
-        resContent.insertBefore(sprites.lose.el, els.ui.resultScore.parentNode);
+        sprites.win.el = setupResultSprite('anim-win', 'anim_win.png', sprites.win.frames);
+        sprites.lose.el = setupResultSprite('anim-lose', 'anim_lose.png', sprites.lose.frames);
     }
 }
 
@@ -196,13 +212,8 @@ resizeGame();
 
 // === 4. GAME LOOP ===
 
-if (document.getElementById('btn-start')) document.getElementById('btn-start').onclick = startGame;
-if (document.getElementById('btn-retry')) document.getElementById('btn-retry').onclick = startGame;
-
-// Где мы назначаем btn-start, добавь это:
 if (getEl('btn-start')) getEl('btn-start').onclick = startGame;
 if (getEl('btn-retry')) getEl('btn-retry').onclick = startGame;
-// Пока кнопка "Дальше" просто перезапускает уровень (заглушка)
 if (getEl('btn-next')) getEl('btn-next').onclick = startGame;
 
 function startGame() {
@@ -244,13 +255,10 @@ function onSecondTick() {
 
 function gameLoop() {
     if (!state.isPlaying) return;
-
     const now = Date.now();
 
-    // Отрисовка спрайтов (только здесь мы меняем CSS)
-    renderSprites();
+    renderSprites(); // Рендер графики
 
-    // Фазы
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
             pickNewPhase();
@@ -259,7 +267,6 @@ function gameLoop() {
         }
     }
 
-    // UI Бара
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const totalTime = state.phaseTotalTime;
@@ -272,41 +279,29 @@ function gameLoop() {
     window.loopId = requestAnimationFrame(gameLoop);
 }
 
-// === 5. SPRITE ENGINE (SCRUBBING) ===
+// === 5. SPRITE ENGINE (PIXEL PERFECT) ===
 
-// Эта функция вызывает сдвиг кадров на основе движения
-// delta: положительное или отрицательное число (направление)
-function scrubSprite(name, delta) {
-    const s = sprites[name];
-    if (!s || !s.el) return;
-
-    s.visible = true; // Делаем видимым, раз есть движение
-
-    // Обновляем кадр (зацикливание)
-    // Если delta > 0, идем вперед. Если < 0, назад.
-    s.frame += delta;
-
-    // Зацикливание (Looping)
-    if (s.frame >= s.frames) s.frame = 0;
-    if (s.frame < 0) s.frame = s.frames - 1;
-}
-
-// Эта функция переносит состояние js в css
+// Главная функция рендера
 function renderSprites() {
     // 1. Спрайты результата (автоплей)
     if (els.screens.result.classList.contains('active')) {
         ['win', 'lose'].forEach(name => {
             const s = sprites[name];
             if(s.visible && s.el) {
-                s.frame += 0.2; // Авто скорость
+                s.frame += 0.2; 
                 if (s.frame >= s.frames) s.frame = 0;
-                applyFrame(s);
+                // Для экрана результата используем проценты, т.к. размер не 360px
+                const currentFrame = Math.floor(s.frame);
+                if (s.frames > 1) {
+                    const pos = (100 / (s.frames - 1)) * currentFrame;
+                    s.el.style.backgroundPosition = `${pos}% 0%`;
+                }
             }
         });
         return;
     }
 
-    // 2. Игровые спрайты
+    // 2. Игровые спрайты (Pixel Based)
     let anyActive = false;
     ['head', 'body', 'bottom'].forEach(name => {
         const s = sprites[name];
@@ -315,31 +310,37 @@ function renderSprites() {
         if (s.visible) {
             s.el.style.opacity = 1;
             anyActive = true;
-            applyFrame(s);
             
-            // Если это не тап (он сам исчезает), то можно сбрасывать видимость
-            // если долго нет действий. Но пока оставим так.
+            // Расчет позиции в ПИКСЕЛЯХ
+            // Сдвигаем фон влево на (FrameIndex * 360) пикселей
+            const currentFrame = Math.floor(s.frame);
+            const pixelShift = -(currentFrame * 360);
+            
+            s.el.style.backgroundPosition = `${pixelShift}px 0px`;
+            
         } else {
             s.el.style.opacity = 0;
         }
     });
 
-    // Скрываем базу, если есть анимация
     if (els.baseCucumber) {
         els.baseCucumber.style.opacity = anyActive ? 0 : 1;
     }
 }
 
-function applyFrame(sprite) {
-    // Округляем фрейм до целого для отрисовки
-    const currentFrame = Math.floor(sprite.frame);
-    const totalFrames = sprite.frames;
+// Функция "Прокрутки" спрайта (Sync)
+function scrubSprite(name, deltaFrames) {
+    const s = sprites[name];
+    if (!s || !s.el) return;
+
+    s.visible = true;
     
-    if (totalFrames > 1) {
-        const step = 100 / (totalFrames - 1);
-        const pos = step * currentFrame;
-        sprite.el.style.backgroundPosition = `${pos}% 0%`;
-    }
+    // deltaFrames может быть 1 или -1
+    s.frame += deltaFrames;
+
+    // Зацикливание
+    if (s.frame >= s.frames) s.frame = 0;
+    if (s.frame < 0) s.frame = s.frames - 1;
 }
 
 function enterWaitPhase() {
@@ -347,7 +348,6 @@ function enterWaitPhase() {
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
     Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     
-    // Скрываем спрайты
     sprites.head.visible = false;
     sprites.body.visible = false;
     sprites.bottom.visible = false;
@@ -387,9 +387,8 @@ function playZoneSound(type) {
     snd.play().catch(()=>{});
 }
 
-// === 6. INPUT HANDLING (SYNCED) ===
+// === 6. INPUT HANDLING ===
 
-// Запрещаем скролл
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
@@ -406,14 +405,13 @@ window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
     gestureData.bodyLastY = null;
     
-    // При отпускании пальца можно либо скрывать спрайт, либо оставлять.
-    // Если скрыть сразу, будет мигать. Оставим таймер.
+    // Сбрасываем видимость не сразу, а с небольшой задержкой, 
+    // чтобы анимация не "мигала" при частых отрывах пальца
     setTimeout(() => {
-        // Проверка: если пальца нет, скрываем (для головы/тела)
-        // Но пока оставим логику "Фаза закончилась - скрыли".
-        // Или сброс:
-        // sprites.head.visible = false; 
-    }, 500);
+        // Если фаза все еще идет, можно оставить последний кадр видимым
+        // Но для четкости лучше скрывать, если нет input
+        // (Оставим пока как есть для плавности)
+    }, 200);
 });
 
 let gestureData = {
@@ -421,9 +419,9 @@ let gestureData = {
     headAccumulator: 0,
     bodyLastY: null,
     bodyAccumulator: 0,
-    // Накопители для смены кадров
-    frameAccHead: 0,
-    frameAccBody: 0
+    // Накопители для кадров
+    accFrameHead: 0,
+    accFrameBody: 0
 };
 
 function handleInput(e, zoneName) {
@@ -449,27 +447,26 @@ function processHead(touch, target) {
     const angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
     
     if (gestureData.headAngle !== null) {
-        let delta = angle - gestureData.headAngle; // Raw delta
-        // Fix jump -PI to PI
+        let delta = angle - gestureData.headAngle;
         if (delta > Math.PI) delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         
-        // 1. Очки
+        // Очки
         gestureData.headAccumulator += Math.abs(delta);
         if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
             triggerSuccess(PHASES.HEAD, touch.clientX, touch.clientY);
             gestureData.headAccumulator = 0;
         }
 
-        // 2. Анимация (Скраббинг)
-        // Если дельта > 0 (по часовой) -> кадр вперед
-        // Мы накапливаем движения, чтобы кадры не летели слишком быстро
-        gestureData.frameAccHead += delta;
+        // Синхронизация спрайта
+        gestureData.accFrameHead += delta;
         
-        if (Math.abs(gestureData.frameAccHead) > CONFIG.SCRUB_SENSITIVITY.HEAD) {
-            const dir = gestureData.frameAccHead > 0 ? 1 : -1;
+        // Если накопили достаточно вращения для смены кадра
+        if (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
+            // Направление: +1 или -1
+            const dir = gestureData.accFrameHead > 0 ? 1 : -1;
             scrubSprite('head', dir);
-            gestureData.frameAccHead = 0; // Сброс накопителя
+            gestureData.accFrameHead = 0; // Сброс
         }
     }
     gestureData.headAngle = angle;
@@ -478,23 +475,23 @@ function processHead(touch, target) {
 function processBody(touch) {
     const y = touch.clientY;
     if (gestureData.bodyLastY !== null) {
-        const delta = y - gestureData.bodyLastY; // Raw delta (+ вниз, - вверх)
+        const delta = y - gestureData.bodyLastY; // Пиксели
         
-        // 1. Очки
+        // Очки
         gestureData.bodyAccumulator += Math.abs(delta);
         if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
             triggerSuccess(PHASES.BODY, touch.clientX, touch.clientY);
             gestureData.bodyAccumulator = 0;
         }
 
-        // 2. Анимация (Скраббинг)
-        gestureData.frameAccBody += delta;
-        if (Math.abs(gestureData.frameAccBody) > CONFIG.SCRUB_SENSITIVITY.BODY) {
-            // Если тянем вниз (delta > 0) -> кадры вперед (1)
-            // Если вверх (delta < 0) -> кадры назад (-1)
-            const dir = gestureData.frameAccBody > 0 ? 1 : -1;
+        // Синхронизация спрайта
+        gestureData.accFrameBody += delta;
+        
+        if (Math.abs(gestureData.accFrameBody) > CONFIG.SCRUB.BODY_STEP) {
+            // Вниз (>0) -> кадр вперед, Вверх (<0) -> кадр назад
+            const dir = gestureData.accFrameBody > 0 ? 1 : -1;
             scrubSprite('body', dir);
-            gestureData.frameAccBody = 0;
+            gestureData.accFrameBody = 0;
         }
     }
     gestureData.bodyLastY = y;
@@ -503,16 +500,10 @@ function processBody(touch) {
 function processTap(touch) {
     triggerSuccess(PHASES.TAP, touch.clientX, touch.clientY);
     
-    // Для тапа простая логика: показать 1-й кадр (сжатие), потом вернуть 0
     const s = sprites.bottom;
     s.visible = true;
-    s.frame = 1; // Кадр удара
-    
-    // Авто-возврат через 100мс
-    setTimeout(() => { 
-        if(s.visible) s.frame = 0; 
-    }, 100);
-    // Скрытие через 200мс
+    s.frame = 1;
+    setTimeout(() => { if(s.visible) s.frame = 0; }, 100);
     setTimeout(() => { 
         if (state.currentPhase !== PHASES.TAP) s.visible = false;
     }, 200);
@@ -577,7 +568,6 @@ function finishGame() {
     els.screens.result.classList.add('active');
     els.ui.resultScore.textContent = state.score;
     
-    // Скрываем игровые спрайты и возвращаем базу
     sprites.head.visible = false;
     sprites.body.visible = false;
     sprites.bottom.visible = false;
@@ -585,44 +575,29 @@ function finishGame() {
 
     const isWin = state.score >= CONFIG.WIN_SCORE;
     
-    // Сброс видимости спрайтов результата перед выбором
     if (sprites.win.el) sprites.win.el.style.display = 'none';
     if (sprites.lose.el) sprites.lose.el.style.display = 'none';
     
     if (isWin) {
-        // --- ПОБЕДА ---
         if (audio.win) audio.win.play().catch(()=>{});
-        
         if (sprites.win.el) sprites.win.el.style.display = 'block';
         sprites.win.visible = true;
-        
-        // Текст
         els.ui.resultTitle.textContent = "ПОБЕДА!";
-        els.ui.resultTitle.className = "win-text"; // Зеленый
+        els.ui.resultTitle.className = "win-text";
         els.ui.resultMsg.textContent = "Уровень пройден!";
-        
-        // Кнопки: Показываем ДАЛЬШЕ, прячем ЕЩЕ РАЗ
         if(els.ui.btnNext) els.ui.btnNext.classList.remove('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.add('hidden');
-        
     } else {
-        // --- ПОРАЖЕНИЕ ---
         if (audio.lose) audio.lose.play().catch(()=>{});
-        
         if (sprites.lose.el) sprites.lose.el.style.display = 'block';
         sprites.lose.visible = true;
-        
-        // Текст
         els.ui.resultTitle.textContent = "ПОРАЖЕНИЕ";
-        els.ui.resultTitle.className = "lose-text"; // Красный
+        els.ui.resultTitle.className = "lose-text";
         els.ui.resultMsg.textContent = "Не смог кончить...";
-        
-        // Кнопки: Прячем ДАЛЬШЕ, показываем ЕЩЕ РАЗ
         if(els.ui.btnNext) els.ui.btnNext.classList.add('hidden');
         if(els.ui.btnRetry) els.ui.btnRetry.classList.remove('hidden');
     }
 
-    // Запускаем анимацию результата
     const resultLoop = () => {
         if (!state.isPlaying && els.screens.result.classList.contains('active')) {
             renderSprites(); 
