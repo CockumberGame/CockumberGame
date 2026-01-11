@@ -15,18 +15,18 @@ const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
     LEVEL_TIME: 60,
-    WIN_SCORE: 2000, // Чуть поднял цель, так как очков станет больше
+    WIN_SCORE: 3500, // Чуть поднял цель, так как очков станет больше
     
     SCORE: {
         FRAME_STEP: 3,     // Очки за каждый кадр анимации (те самые "ступени")
-        CYCLE_BONUS: 50,   // Бонус за полный цикл (вверх-вниз)
-        PERFECT_BONUS: 100,// Идеальная дрочка
+        CYCLE_BONUS: 33,   // Бонус за полный цикл (вверх-вниз)
+        PERFECT_BONUS: 69,// Идеальная дрочка
         
-        TAP: 5,            
-        TAP_DOUBLE: 15,    
+        TAP: 7,            
+        TAP_DOUBLE: 16,    
         PENALTY_BASE: 15,
-        MAX_COMBO: 3.0,    // Чуть поднял макс комбо
-        BONUS_GENTLE: 30
+        MAX_COMBO: 2.0,    // Чуть поднял макс комбо
+        BONUS_GENTLE: 21
     },
 
     TAP_MECHANIC: {
@@ -402,12 +402,12 @@ function updateBodyPhysics() {
                     state.phaseCounters.bodyStrokes++;
                     
                     // БОНУС ЗА ЦИКЛ (большой)
-                    triggerBonus(CONFIG.SCORE.CYCLE_BONUS, "ДА!", '', 180, 200); 
+                    triggerBonus(CONFIG.SCORE.CYCLE_BONUS, "ДРОЧИ ДРОЧИ", '', 180, 200); 
                     if(Math.random() > 0.5) audioSystem.play('body');
 
                     // БОНУС ЗА ИДЕАЛ (очень большой)
                     if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-                        triggerBonus(CONFIG.SCORE.PERFECT_BONUS, "ИДЕАЛЬНО!", 'text-perfect', 180, 320);
+                        triggerBonus(CONFIG.SCORE.PERFECT_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
                         state.phaseCounters.bodyStrokes = 0; 
                     }
                 }
