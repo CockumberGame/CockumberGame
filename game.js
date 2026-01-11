@@ -21,10 +21,10 @@ const CONFIG = {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
         BODY_BONUS: 69, 
-        TAP: 5,            
-        TAP_DOUBLE: 15,    
+        TAP: 13,            
+        TAP_DOUBLE: 28,    
         PENALTY_BASE: 15,
-        MAX_COMBO: 2.8,    
+        MAX_COMBO: 3.0,    
         BONUS_GENTLE: 20,
         BONUS_BURST_MULT: 2
     },
