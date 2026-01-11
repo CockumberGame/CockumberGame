@@ -1,6 +1,6 @@
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v14.1 (Polished Animations)
-   (Targeted Tap System, Multi-touch, Audio Fixes, Smooth Lerp)
+   COCKUMBER RUBBER - CORE v15.0 (Delta Input System)
+   (Relative Touch, Perfect Stroke Fix, Smooth Looping)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -21,10 +21,10 @@ const CONFIG = {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
         BODY_BONUS: 69, 
-        TAP: 13,            
-        TAP_DOUBLE: 28,    
+        TAP: 5,            
+        TAP_DOUBLE: 15,    
         PENALTY_BASE: 15,
-        MAX_COMBO: 3.0,    
+        MAX_COMBO: 2.8,    
         BONUS_GENTLE: 20,
         BONUS_BURST_MULT: 2
     },
@@ -42,13 +42,21 @@ const CONFIG = {
         lose: 10
     },
 
-    SCRUB: { HEAD_STEP: 0.4 },
+    // НАСТРОЙКИ ЧУВСТВИТЕЛЬНОСТИ
+    INPUT: {
+        // Коэффициент для Ствола. 
+        // 0.045 подобран так, чтобы ~200px движения (80% зоны) проматывали 9 кадров.
+        BODY_SENSITIVITY: 0.045, 
+        
+        // Коэффициент для Головы. 
+        // Определяет, сколько оборотов анимации делает 1 оборот пальца.
+        HEAD_RATIO: 1.0 
+    },
     
     THRESHOLDS: {
-        HEAD: 0.6, 
-        BODY: 20,
-        BODY_TOP_LIMIT: 0.2,   
-        BODY_BOTTOM_LIMIT: 0.8 
+        // Порог скорости для начисления очков за трение (не анимация, а именно очки)
+        BODY_MOVE_SCORE: 5, 
+        HEAD_MOVE_SCORE: 0.1
     },
     
     GOALS: {
@@ -84,7 +92,7 @@ let state = {
     lastActionTime: 0,
     
     phaseCounters: { headTicks: 0, bodyStrokes: 0 },
-    strokeState: 0,
+    strokeState: 0, // 0 = середина, 1 = верх (шкурка натянута), 2 = низ (оголен)
 
     tapTarget: null,         
     tapNextSpawnTime: 0,
@@ -136,13 +144,13 @@ const els = {
     particles: getEl('particles-container')
 };
 
-// === ИЗМЕНЕНИЕ 1: Добавили targetFrame для плавности ===
+// Спрайты теперь хранят floatFrame - точное дробное значение кадра
 let sprites = {
-    head:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
-    body:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
-    bottom: { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
-    win:    { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
-    lose:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
+    head:   { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
+    body:   { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
+    bottom: { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
+    win:    { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
+    lose:   { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
 };
 
 // === 3. AUDIO SYSTEM ===
@@ -359,13 +367,10 @@ function spawnTapTarget() {
     }
 }
 
-// === ИЗМЕНЕНИЕ 2: Обновленный Рендер с LERP ===
+// === ОБНОВЛЕННЫЙ РЕНДЕР (БЕЗ LERP, ПРЯМОЙ МАППИНГ) ===
 function renderSprites() {
     let anyActive = false;
     
-    // Коэффициент плавности (меньше = плавнее/медленнее)
-    const LERP_FACTOR = 0.3; 
-
     ['head', 'body', 'bottom'].forEach(name => {
         const s = sprites[name];
         if (!s.el) return;
@@ -374,28 +379,19 @@ function renderSprites() {
             if (s.el.style.opacity !== '1') s.el.style.opacity = 1;
             anyActive = true;
 
-            // Логика интерполяции
-            if (name === 'head') {
-                 // Для головы лерп не делаем из-за цикличности кадров, 
-                 // так как мы поправили логику в processHead
-                 s.frame = s.targetFrame; 
-            } else {
-                 // Плавный подгон кадра
-                 s.frame += (s.targetFrame - s.frame) * LERP_FACTOR;
-            }
-
-            const displayFrame = Math.floor(s.frame);
+            // В "Относительном режиме" мы просто берем floatFrame, который посчитали в инпуте
+            // и округляем его для спрайтшита
+            let displayFrame = Math.floor(s.floatFrame);
             
-            if (!isNaN(displayFrame)) {
-                // Защита от вылета за пределы
-                let safeFrame = Math.max(0, Math.min(s.frames - 1, displayFrame));
-                const pixelShift = -(safeFrame * CONFIG.REF_WIDTH);
-                
-                // Оптимизация DOM: меняем только если нужно
-                const newPos = `${pixelShift}px 0px`;
-                if (s.el.style.backgroundPosition !== newPos) {
-                    s.el.style.backgroundPosition = newPos;
-                }
+            // Защита границ
+            if(displayFrame < 0) displayFrame = 0;
+            if(displayFrame >= s.frames) displayFrame = s.frames - 1;
+            
+            const pixelShift = -(displayFrame * CONFIG.REF_WIDTH);
+            const newPos = `${pixelShift}px 0px`;
+            
+            if (s.el.style.backgroundPosition !== newPos) {
+                s.el.style.backgroundPosition = newPos;
             }
         } else {
             if (s.el.style.opacity !== '0') s.el.style.opacity = 0;
@@ -437,12 +433,15 @@ function pickNewPhase() {
         state.doubleTapLatch = 0;
         els.icons.tap1.classList.add('hidden');
         els.icons.tap2.classList.add('hidden');
+    } else if (next === PHASES.BODY) {
+        // Сброс анимации тела в нейтраль при старте фазы
+        sprites.body.floatFrame = 0;
+        state.strokeState = 1; // Считаем что начинаем сверху
     }
 
     state.currentPhase = next;
     state.phaseCounters = { headTicks: 0, bodyStrokes: 0 };
-    state.strokeState = 0; 
-
+    
     tg.HapticFeedback.impactOccurred('light');
 
     const duration = CONFIG.PHASE_MIN_TIME + Math.random() * (CONFIG.PHASE_MAX_TIME - CONFIG.PHASE_MIN_TIME);
@@ -455,7 +454,7 @@ function pickNewPhase() {
     if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[next];
 }
 
-// === 8. INPUT HANDLING ===
+// === 8. INPUT HANDLING (СИСТЕМА ДЕЛЬТ) ===
 
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
@@ -464,30 +463,38 @@ document.addEventListener('touchmove', function(e) {
 if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
 if(els.zones.body) els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
 
+// Для "Относительного" управления важно сбрасывать начальную точку касания
+if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => {
+    if (state.currentPhase !== PHASES.BODY) { checkPenaltyTap(e, PHASES.BODY); return; }
+    const touch = e.touches[0];
+    gestureData.lastTouchY = touch.clientY;
+    gestureData.bodyAccumulator = 0;
+});
+
+if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => {
+    if (state.currentPhase !== PHASES.HEAD) { checkPenaltyTap(e, PHASES.HEAD); return; }
+    // При касании головы сбрасываем предыдущий угол, чтобы не скакнуло
+    gestureData.headAngle = null; 
+});
+
+
 if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 
-if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => checkPenaltyTap(e, PHASES.HEAD));
-if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => startBodyStroke(e));
 
 window.addEventListener('touchend', () => {
     gestureData.headAngle = null;
-    gestureData.bodyLastY = null;
+    gestureData.lastTouchY = null;
     sprites.head.visible = false;
 });
 
 let gestureData = {
-    headAngle: null, headAccumulator: 0, accFrameHead: 0,
-    bodyLastY: null, bodyAccumulator: 0, strokeStartY: 0
+    // Для головы
+    headAngle: null, headAccumulator: 0,
+    // Для тела (ствола)
+    lastTouchY: null, bodyAccumulator: 0
 };
 
-function startBodyStroke(e) {
-    if (state.currentPhase !== PHASES.BODY) { checkPenaltyTap(e, PHASES.BODY); return; }
-    const touch = e.touches[0];
-    gestureData.strokeStartY = touch.clientY;
-    gestureData.bodyLastY = touch.clientY;
-    gestureData.bodyAccumulator = 0;
-}
 
 function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
@@ -554,9 +561,8 @@ function completeTap(type, touch) {
     else if (type === 'right') f = 2;
     else if (type === 'double') f = 3;
     
-    // Синхронизируем и frame и targetFrame чтобы LERP не "уплыл"
     s.frame = f;
-    s.targetFrame = f;
+    s.floatFrame = f;
 
     const pixelShift = -(f * CONFIG.REF_WIDTH);
     s.el.style.backgroundPosition = `${pixelShift}px 0px`;
@@ -573,24 +579,31 @@ function completeTap(type, touch) {
     squashCucumber();
 }
 
-// === ИЗМЕНЕНИЕ 3: Исправленный HEAD (while loop) ===
+// === НОВАЯ ЛОГИКА ГОЛОВЫ (БЕСКОНЕЧНЫЙ ЦИКЛ ПО ДЕЛЬТЕ) ===
 function processHead(touch, target) {
     const rect = target.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
+    // Считаем угол
     const angle = Math.atan2(touch.clientY - centerY, touch.clientX - centerX);
     
     if (gestureData.headAngle !== null) {
+        // Считаем разницу с предыдущим кадром
         let delta = angle - gestureData.headAngle;
+        
+        // Коррекция перехода через PI/-PI
         if (delta > Math.PI) delta -= 2 * Math.PI;
         if (delta < -Math.PI) delta += 2 * Math.PI;
         
+        // Начисляем очки за движение (любое вращение)
         gestureData.headAccumulator += Math.abs(delta);
-        if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD) {
+        if (gestureData.headAccumulator > CONFIG.THRESHOLDS.HEAD_MOVE_SCORE) {
             triggerSuccessCommon(CONFIG.SCORE.HEAD_SPIN, touch.clientX, touch.clientY);
-            audioSystem.play('head');
+            // Звук реже
+            if(Math.random() > 0.7) audioSystem.play('head');
             gestureData.headAccumulator = 0;
             
+            // Счетчик для бонуса "Нежно"
             state.phaseCounters.headTicks++;
             if (state.phaseCounters.headTicks >= CONFIG.GOALS.HEAD_TICKS) {
                 triggerBonus(CONFIG.SCORE.BONUS_GENTLE, "НЕЖНО!", 'text-gentle', 180, 200);
@@ -598,81 +611,93 @@ function processHead(touch, target) {
             }
         }
 
-        gestureData.accFrameHead += delta;
-        // WHILE: обрабатываем все накопленное движение
-        while (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
-            const dir = gestureData.accFrameHead > 0 ? 1 : -1;
-            const s = sprites.head;
-            if (s && s.el) {
-                s.visible = true;
-                
-                // Двигаем targetFrame
-                s.targetFrame += dir;
-                
-                // Цикл (Wrap)
-                if (s.targetFrame >= s.frames) s.targetFrame = 0;
-                if (s.targetFrame < 0) s.targetFrame = s.frames - 1;
-                
-                // Мгновенная синхронизация при большом скачке (wrap around)
-                if (Math.abs(s.targetFrame - s.frame) > s.frames / 2) {
-                    s.frame = s.targetFrame; 
-                }
-            }
-            // Вычитаем шаг, сохраняя остаток
-            gestureData.accFrameHead -= (dir * CONFIG.SCRUB.HEAD_STEP);
+        // Анимация вращения через floatFrame
+        const s = sprites.head;
+        if (s) {
+            s.visible = true;
+            // Преобразуем радианы в "доли" полного круга
+            // delta / (2PI) = процент оборота. Умножаем на кол-во кадров.
+            const frameDelta = (delta / (2 * Math.PI)) * s.frames * CONFIG.INPUT.HEAD_RATIO;
+            
+            s.floatFrame += frameDelta;
+            
+            // Зацикливаем floatFrame в пределах 0..frames (Modulo)
+            // Но нам нужно положительное число для backgroundPosition
+            // Поэтому просто берем остаток и приводим к положительному
+            let normalized = s.floatFrame % s.frames;
+            if (normalized < 0) normalized += s.frames;
+            s.floatFrame = normalized;
         }
     }
     gestureData.headAngle = angle;
 }
 
-// === ИЗМЕНЕНИЕ 4: Исправленный BODY (Padding + Remap) ===
+// === НОВАЯ ЛОГИКА ТЕЛА (DELTA + CLAMP) ===
 function processBody(touch, target) {
     const y = touch.clientY;
-    const rect = target.getBoundingClientRect();
     
-    // Процент положения пальца
-    let percent = (y - rect.top) / rect.height;
+    // Если это первый кадр касания - просто запоминаем и выходим
+    if (gestureData.lastTouchY === null) {
+        gestureData.lastTouchY = y;
+        return;
+    }
     
-    // REMAP: Добавляем отступы (padding), чтобы легче достигать краев (0% и 100%)
-    // 0.15 = 15% сверху и снизу считаются "краем"
-    const padding = 0.15; 
-    let visualPercent = (percent - padding) / (1.0 - (padding * 2));
-    visualPercent = Math.max(0, Math.min(1, visualPercent));
-
+    // Считаем дельту движения (в пикселях)
+    const dy = y - gestureData.lastTouchY;
+    
+    // Превращаем пиксели в кадры (с учетом чувствительности)
+    // Чувствительность настроена так, что нужно пройти ~80% зоны для полного цикла
+    const frameDelta = dy * CONFIG.INPUT.BODY_SENSITIVITY;
+    
     const s = sprites.body;
     if (s && s.el) {
         s.visible = true;
-        // Устанавливаем ЦЕЛЬ анимации
-        s.targetFrame = visualPercent * (s.frames - 1);
-    }
-    
-    // Логика "Идеальной дрочки" остается на реальном проценте
-    const isAtTop = percent < CONFIG.THRESHOLDS.BODY_TOP_LIMIT;    
-    const isAtBottom = percent > CONFIG.THRESHOLDS.BODY_BOTTOM_LIMIT; 
-    
-    if (isAtTop) {
-        if (state.strokeState === 2) {
-            state.phaseCounters.bodyStrokes++;
-            if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-                triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
-                state.phaseCounters.bodyStrokes = 0; 
+        
+        // Добавляем к текущему положению
+        s.floatFrame += frameDelta;
+        
+        // ЖЕСТКИЙ CLAMP (Ограничение)
+        // Это и есть "мягкие края". Анимация не может уйти ниже 0 или выше MAX.
+        // Игрок может тереть дальше, но анимация стоит на месте.
+        if (s.floatFrame < 0) s.floatFrame = 0;
+        if (s.floatFrame >= s.frames) s.floatFrame = s.frames - 0.01; // Чуть меньше макс, чтобы floor не дал сбой
+        
+        // === ЛОГИКА "ИДЕАЛЬНОЙ ДРОЧКИ" (На основе кадров) ===
+        // 0 = Верх (Шкурка натянута), frames-1 = Низ (Оголен)
+        
+        // Если анимация ударилась в "потолок" (кадр 0)
+        if (s.floatFrame <= 0.5) {
+            // Если мы до этого были внизу (2), то цикл завершен -> Идем в верх (1)
+            // Но у нас логика: Вниз-Вверх = 1 цикл. Или Вверх-Вниз.
+            // Давай так: считаем удары о "дно".
+            state.strokeState = 1; // Мы наверху
+        } 
+        // Если анимация ударилась в "дно" (последний кадр)
+        else if (s.floatFrame >= s.frames - 1.5) {
+            // Если мы пришли сверху
+            if (state.strokeState === 1) {
+                state.strokeState = 2; // Мы внизу
+                
+                // ЗАСЧИТЫВАЕМ СТРОК
+                state.phaseCounters.bodyStrokes++;
+                if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
+                    triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
+                    state.phaseCounters.bodyStrokes = 0; 
+                }
             }
         }
-        state.strokeState = 1; 
-    } else if (isAtBottom) {
-        state.strokeState = 2; 
     }
 
-    if (gestureData.bodyLastY !== null) {
-        const delta = Math.abs(y - gestureData.bodyLastY);
-        gestureData.bodyAccumulator += delta;
-        if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY) {
-            triggerSuccessCommon(CONFIG.SCORE.BODY_RUB, touch.clientX, touch.clientY);
-            audioSystem.play('body');
-            gestureData.bodyAccumulator = 0;
-        }
+    // Очки за само движение (трение)
+    const moveAbs = Math.abs(dy);
+    gestureData.bodyAccumulator += moveAbs;
+    if (gestureData.bodyAccumulator > CONFIG.THRESHOLDS.BODY_MOVE_SCORE) {
+        triggerSuccessCommon(CONFIG.SCORE.BODY_RUB, touch.clientX, touch.clientY);
+        if(Math.random() > 0.6) audioSystem.play('body');
+        gestureData.bodyAccumulator = 0;
     }
-    gestureData.bodyLastY = y;
+    
+    gestureData.lastTouchY = y;
 }
 
 function checkPenaltyTap(e, zoneName) {
@@ -807,7 +832,7 @@ function finishGame() {
         activeResSprite.el.style.display = 'block';
         activeResSprite.visible = true; 
         activeResSprite.frame = 0;
-        activeResSprite.targetFrame = 0;
+        activeResSprite.floatFrame = 0;
     }
 
     const resultLoop = () => {
