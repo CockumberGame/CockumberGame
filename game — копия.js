@@ -1,6 +1,6 @@
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v14.1 (Polished Animations)
-   (Targeted Tap System, Multi-touch, Audio Fixes, Smooth Lerp)
+   COCKUMBER RUBBER - CORE v14.0
+   (Targeted Tap System, Multi-touch, Audio Fixes)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -21,23 +21,24 @@ const CONFIG = {
         HEAD_SPIN: 2,
         BODY_RUB: 1,
         BODY_BONUS: 69, 
-        TAP: 5,            
-        TAP_DOUBLE: 15,    
+        TAP: 5,            // Подняли очки за точный тап
+        TAP_DOUBLE: 15,    // Очки за двойной тап
         PENALTY_BASE: 15,
-        MAX_COMBO: 2.8,    
+        MAX_COMBO: 2.8,    // Чуть выше комбо
         BONUS_GENTLE: 20,
         BONUS_BURST_MULT: 2
     },
 
+    // НАСТРОЙКИ ТАПА
     TAP_MECHANIC: {
-        SPAWN_INTERVAL: 250, 
-        DOUBLE_WINDOW: 200,  
+        SPAWN_INTERVAL: 250, // Пауза между появлением целей (мс)
+        DOUBLE_WINDOW: 200,  // Время (мс) между касаниями для засчитывания двойного тапа
     },
 
     FRAMES: {
         head: 9, 
         body: 9, 
-        bottom: 4, 
+        bottom: 4, // 0=Idle, 1=Left, 2=Right, 3=Double
         win: 10, 
         lose: 10
     },
@@ -86,11 +87,13 @@ let state = {
     phaseCounters: { headTicks: 0, bodyStrokes: 0 },
     strokeState: 0,
 
-    tapTarget: null,         
+    // Переменные для Тапа
+    tapTarget: null,         // 'left', 'right', 'double'
     tapNextSpawnTime: 0,
-    doubleTapLatch: 0        
+    doubleTapLatch: 0        // Таймер первого пальца для мультитача
 };
 
+// Глобальные ID для остановки циклов
 let gameLoopId = null;
 let timerIntervalId = null;
 let resultAnimId = null;
@@ -130,22 +133,22 @@ const els = {
     icons: {
         head: getEl('icon-head'),
         body: getEl('icon-body'),
-        tap1: getEl('icon-tap-1'), 
-        tap2: getEl('icon-tap-2')  
+        tap1: getEl('icon-tap-1'), // Левая иконка
+        tap2: getEl('icon-tap-2')  // Правая иконка
     },
     particles: getEl('particles-container')
 };
 
-// === ИЗМЕНЕНИЕ 1: Добавили targetFrame для плавности ===
+// Спрайты
 let sprites = {
-    head:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
-    body:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
-    bottom: { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
-    win:    { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
-    lose:   { frame: 0, targetFrame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
+    head:   { frame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
+    body:   { frame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
+    bottom: { frame: 0, el: null, frames: CONFIG.FRAMES.bottom, visible: false },
+    win:    { frame: 0, el: null, frames: CONFIG.FRAMES.win, visible: false },
+    lose:   { frame: 0, el: null, frames: CONFIG.FRAMES.lose, visible: false }
 };
 
-// === 3. AUDIO SYSTEM ===
+// === 3. AUDIO SYSTEM (POOLING) ===
 const audioSystem = {
     pool: { head: [], body: [], tap: [], win: [], lose: [] },
     initialized: false,
@@ -217,6 +220,7 @@ function initSprites() {
     sprites.body.el = createAnimEl('anim-body', 'anim_body.png', sprites.body.frames);
     sprites.bottom.el = createAnimEl('anim-bottom', 'anim_bottom.png', sprites.bottom.frames);
     
+    // Результаты
     const createResSprite = (id, img, frames) => {
         let el = document.getElementById(id);
         if(!el) {
@@ -295,6 +299,7 @@ function onSecondTick() {
     els.ui.timerDigits.textContent = state.timeRemaining;
     
     if (state.timeRemaining <= 10) els.ui.timerDigits.className = 'pixel-text timer-crit';
+    
     if (state.timeRemaining <= 0) finishGame();
 }
 
@@ -303,12 +308,14 @@ function gameLoop() {
     const now = Date.now();
     renderSprites();
     
+    // Спавнер целей для ТАПА
     if (state.currentPhase === PHASES.TAP) {
         if (!state.tapTarget && now > state.tapNextSpawnTime) {
             spawnTapTarget();
         }
     }
     
+    // Смена фаз
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
             pickNewPhase();
@@ -317,6 +324,7 @@ function gameLoop() {
         }
     }
 
+    // Комбо убывает
     if (now - state.lastActionTime > 2000) {
         if (state.combo > 1.0) {
             state.combo = Math.max(1.0, state.combo - 0.02);
@@ -324,6 +332,7 @@ function gameLoop() {
         }
     }
 
+    // Прогресс фазы
     if (state.currentPhase !== PHASES.WAIT) {
         const timeLeft = state.phaseEndTime - now;
         const pct = Math.max(0, (timeLeft / state.phaseTotalTime) * 100);
@@ -337,16 +346,19 @@ function gameLoop() {
 
 // === 7. LOGIC (TAP, HEAD, BODY) ===
 
+// --- TAP GENERATOR ---
 function spawnTapTarget() {
     const r = Math.random();
     let type = 'left';
     
-    if (r > 0.7) type = 'double';     
-    else if (r > 0.35) type = 'right'; 
+    if (r > 0.7) type = 'double';     // 30% Двойной
+    else if (r > 0.35) type = 'right'; // 35% Правый
+    // иначе Left
 
     state.tapTarget = type;
-    state.doubleTapLatch = 0; 
+    state.doubleTapLatch = 0; // Сброс для двойного касания
 
+    // Показываем нужные иконки
     if (type === 'left') {
         els.icons.tap1.classList.remove('hidden');
         els.icons.tap2.classList.add('hidden');
@@ -359,54 +371,28 @@ function spawnTapTarget() {
     }
 }
 
-// === ИЗМЕНЕНИЕ 2: Обновленный Рендер с LERP ===
+// --- RENDERING ---
 function renderSprites() {
     let anyActive = false;
-    
-    // Коэффициент плавности (меньше = плавнее/медленнее)
-    const LERP_FACTOR = 0.3; 
-
     ['head', 'body', 'bottom'].forEach(name => {
         const s = sprites[name];
         if (!s.el) return;
         
         if (s.visible) {
-            if (s.el.style.opacity !== '1') s.el.style.opacity = 1;
+            s.el.style.opacity = 1;
             anyActive = true;
-
-            // Логика интерполяции
-            if (name === 'head') {
-                 // Для головы лерп не делаем из-за цикличности кадров, 
-                 // так как мы поправили логику в processHead
-                 s.frame = s.targetFrame; 
-            } else {
-                 // Плавный подгон кадра
-                 s.frame += (s.targetFrame - s.frame) * LERP_FACTOR;
-            }
-
-            const displayFrame = Math.floor(s.frame);
-            
-            if (!isNaN(displayFrame)) {
-                // Защита от вылета за пределы
-                let safeFrame = Math.max(0, Math.min(s.frames - 1, displayFrame));
-                const pixelShift = -(safeFrame * CONFIG.REF_WIDTH);
-                
-                // Оптимизация DOM: меняем только если нужно
-                const newPos = `${pixelShift}px 0px`;
-                if (s.el.style.backgroundPosition !== newPos) {
-                    s.el.style.backgroundPosition = newPos;
-                }
+            const currentFrame = Math.floor(s.frame);
+            if(!isNaN(currentFrame)) {
+                const pixelShift = -(currentFrame * CONFIG.REF_WIDTH);
+                s.el.style.backgroundPosition = `${pixelShift}px 0px`;
             }
         } else {
-            if (s.el.style.opacity !== '0') s.el.style.opacity = 0;
+            s.el.style.opacity = 0;
         }
     });
 
     if (els.baseCucumber) {
-        const targetOp = anyActive ? 0 : 1;
-        if (els.baseCucumber.style.opacity != targetOp) {
-            els.baseCucumber.style.opacity = targetOp;
-        }
+        els.baseCucumber.style.opacity = anyActive ? 0 : 1;
     }
 }
 
@@ -415,6 +401,7 @@ function enterWaitPhase() {
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
     state.phaseTotalTime = CONFIG.PAUSE_TIME;
     
+    // Скрываем всё
     Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     sprites.head.visible = false;
     sprites.body.visible = false;
@@ -431,6 +418,7 @@ function pickNewPhase() {
     
     state.lastPhase = next;
 
+    // Сброс переменных Тапа при входе в фазу
     if (next === PHASES.TAP) {
         state.tapTarget = null;
         state.tapNextSpawnTime = Date.now() + 500;
@@ -461,9 +449,11 @@ document.addEventListener('touchmove', function(e) {
     if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
 
+// События
 if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleInput(e, PHASES.HEAD));
 if(els.zones.body) els.zones.body.addEventListener('touchmove', (e) => handleInput(e, PHASES.BODY));
 
+// ТАП: Слушаем конкретные зоны (Левая/Правая)
 if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleInput(e, PHASES.TAP));
 
@@ -493,6 +483,7 @@ function handleInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     const touch = e.touches[0];
     
+    // Общая проверка фазы
     if (state.currentPhase !== zoneName) {
         applyPenalty(touch, 1);
         return;
@@ -503,68 +494,76 @@ function handleInput(e, zoneName) {
         case PHASES.HEAD: processHead(touch, e.currentTarget); break;
         case PHASES.BODY: processBody(touch, e.currentTarget); break;
         case PHASES.TAP: 
+            // Определяем, какую именно половину нажали по ID
             const side = e.currentTarget.id === 'zone-tap-left' ? 'left' : 'right';
             processTapNew(touch, side); 
             break;
     }
 }
 
+// --- НОВАЯ ЛОГИКА ТАПА ---
 function processTapNew(touch, zoneSide) {
     const now = Date.now();
     
+    // 1. Если цели нет, а игрок жмет -> Штраф
     if (!state.tapTarget) {
         applyPenalty(touch, 0.5);
         return;
     }
 
+    // 2. ДВОЙНОЙ ТАП
     if (state.tapTarget === 'double') {
         if (state.doubleTapLatch === 0) {
+            // Первое касание
             state.doubleTapLatch = now;
         } else {
+            // Второе касание
             const diff = now - state.doubleTapLatch;
             if (diff < CONFIG.TAP_MECHANIC.DOUBLE_WINDOW) {
-                completeTap('double', touch); 
+                completeTap('double', touch); // УСПЕХ DOUBLE!
             } else {
-                state.doubleTapLatch = now; 
+                state.doubleTapLatch = now; // Слишком медленно, сброс
             }
         }
         return;
     }
 
+    // 3. ОДИНОЧНЫЕ ТАПЫ
     if (state.tapTarget === zoneSide) {
-        completeTap(zoneSide, touch); 
+        completeTap(zoneSide, touch); // УСПЕХ!
     } else {
-        applyPenalty(touch, 1); 
+        applyPenalty(touch, 1); // Не та сторона
         shakeScreen();
     }
 }
 
 function completeTap(type, touch) {
+    // Скрываем иконки и сбрасываем цель
     els.icons.tap1.classList.add('hidden');
     els.icons.tap2.classList.add('hidden');
     state.tapTarget = null;
     state.tapNextSpawnTime = Date.now() + CONFIG.TAP_MECHANIC.SPAWN_INTERVAL;
 
+    // Анимация спрайта (bottom)
     const s = sprites.bottom;
     s.visible = true;
     s.el.style.opacity = 1;
     
-    let f = 0;
-    if (type === 'left') f = 1;
-    else if (type === 'right') f = 2;
-    else if (type === 'double') f = 3;
-    
-    // Синхронизируем и frame и targetFrame чтобы LERP не "уплыл"
-    s.frame = f;
-    s.targetFrame = f;
+    // Выбор кадра: 1=Left, 2=Right, 3=Double
+    if (type === 'left') s.frame = 1;
+    else if (type === 'right') s.frame = 2;
+    else if (type === 'double') s.frame = 3;
 
-    const pixelShift = -(f * CONFIG.REF_WIDTH);
+    // Сдвиг спрайта
+    const pixelShift = -(s.frame * CONFIG.REF_WIDTH);
     s.el.style.backgroundPosition = `${pixelShift}px 0px`;
 
+    // Таймер скрытия спрайта
     setTimeout(() => { 
         if(state.currentPhase === PHASES.TAP) { s.visible = false; s.el.style.opacity = 0; }
     }, 150);
 
+    // Очки и эффекты
     let pts = CONFIG.SCORE.TAP;
     if (type === 'double') pts = CONFIG.SCORE.TAP_DOUBLE;
 
@@ -573,7 +572,7 @@ function completeTap(type, touch) {
     squashCucumber();
 }
 
-// === ИЗМЕНЕНИЕ 3: Исправленный HEAD (while loop) ===
+// --- HEAD LOGIC ---
 function processHead(touch, target) {
     const rect = target.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
@@ -599,54 +598,36 @@ function processHead(touch, target) {
         }
 
         gestureData.accFrameHead += delta;
-        // WHILE: обрабатываем все накопленное движение
-        while (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
+        if (Math.abs(gestureData.accFrameHead) > CONFIG.SCRUB.HEAD_STEP) {
             const dir = gestureData.accFrameHead > 0 ? 1 : -1;
             const s = sprites.head;
             if (s && s.el) {
                 s.visible = true;
-                
-                // Двигаем targetFrame
-                s.targetFrame += dir;
-                
-                // Цикл (Wrap)
-                if (s.targetFrame >= s.frames) s.targetFrame = 0;
-                if (s.targetFrame < 0) s.targetFrame = s.frames - 1;
-                
-                // Мгновенная синхронизация при большом скачке (wrap around)
-                if (Math.abs(s.targetFrame - s.frame) > s.frames / 2) {
-                    s.frame = s.targetFrame; 
-                }
+                s.frame += dir;
+                if (s.frame >= s.frames) s.frame = 0;
+                if (s.frame < 0) s.frame = s.frames - 1;
             }
-            // Вычитаем шаг, сохраняя остаток
-            gestureData.accFrameHead -= (dir * CONFIG.SCRUB.HEAD_STEP);
+            gestureData.accFrameHead = 0;
         }
     }
     gestureData.headAngle = angle;
 }
 
-// === ИЗМЕНЕНИЕ 4: Исправленный BODY (Padding + Remap) ===
+// --- BODY LOGIC ---
 function processBody(touch, target) {
     const y = touch.clientY;
     const rect = target.getBoundingClientRect();
-    
-    // Процент положения пальца
     let percent = (y - rect.top) / rect.height;
     
-    // REMAP: Добавляем отступы (padding), чтобы легче достигать краев (0% и 100%)
-    // 0.15 = 15% сверху и снизу считаются "краем"
-    const padding = 0.15; 
-    let visualPercent = (percent - padding) / (1.0 - (padding * 2));
-    visualPercent = Math.max(0, Math.min(1, visualPercent));
-
     const s = sprites.body;
     if (s && s.el) {
         s.visible = true;
-        // Устанавливаем ЦЕЛЬ анимации
-        s.targetFrame = visualPercent * (s.frames - 1);
+        let targetFrame = Math.floor(percent * s.frames);
+        if (targetFrame < 0) targetFrame = 0;
+        if (targetFrame >= s.frames) targetFrame = s.frames - 1;
+        s.frame = targetFrame;
     }
     
-    // Логика "Идеальной дрочки" остается на реальном проценте
     const isAtTop = percent < CONFIG.THRESHOLDS.BODY_TOP_LIMIT;    
     const isAtBottom = percent > CONFIG.THRESHOLDS.BODY_BOTTOM_LIMIT; 
     
@@ -697,6 +678,7 @@ function applyPenalty(touch, severity) {
     }
 }
 
+// Общая функция начисления очков
 function triggerSuccessCommon(points, x, y) {
     state.combo = Math.min(state.combo + 0.05, CONFIG.SCORE.MAX_COMBO);
     updateComboUI();
@@ -807,7 +789,6 @@ function finishGame() {
         activeResSprite.el.style.display = 'block';
         activeResSprite.visible = true; 
         activeResSprite.frame = 0;
-        activeResSprite.targetFrame = 0;
     }
 
     const resultLoop = () => {
