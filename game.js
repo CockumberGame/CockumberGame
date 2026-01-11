@@ -1,6 +1,6 @@
 /* ==================================================================
-   COCKUMBER RUBBER - CORE v16.0 (Arcade Engine)
-   (Fuel-based Animation, Auto-Gravity, Ping-Pong Loops)
+   COCKUMBER RUBBER - CORE v17.0 (Ribbed Scoring)
+   (Slower Pace, Frame-based Score, Constant Feedback)
    ================================================================== */
 
 const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : {
@@ -15,18 +15,18 @@ const CONFIG = {
     REF_WIDTH: 360,
     REF_HEIGHT: 640,
     LEVEL_TIME: 60,
-    WIN_SCORE: 2000,
+    WIN_SCORE: 2000, // Чуть поднял цель, так как очков станет больше
     
     SCORE: {
-        HEAD_SPIN: 2,
-        BODY_RUB: 1,
-        BODY_BONUS: 69, 
+        FRAME_STEP: 3,     // Очки за каждый кадр анимации (те самые "ступени")
+        CYCLE_BONUS: 50,   // Бонус за полный цикл (вверх-вниз)
+        PERFECT_BONUS: 100,// Идеальная дрочка
+        
         TAP: 5,            
         TAP_DOUBLE: 15,    
         PENALTY_BASE: 15,
-        MAX_COMBO: 3.5,    
-        BONUS_GENTLE: 20,
-        BONUS_BURST_MULT: 2
+        MAX_COMBO: 3.0,    // Чуть поднял макс комбо
+        BONUS_GENTLE: 30
     },
 
     TAP_MECHANIC: {
@@ -44,20 +44,19 @@ const CONFIG = {
 
     // НАСТРОЙКИ АРКАДНОГО ДВИЖКА
     ENGINE: {
-        // Скорость воспроизведения (кадров за тик) при активном пальце
-        PLAY_SPEED_BODY: 0.45, 
-        PLAY_SPEED_HEAD: 0.4,
+        // Скорость снижена на ~20% (было 0.45 и 0.4)
+        PLAY_SPEED_BODY: 0.35, 
+        PLAY_SPEED_HEAD: 0.30,
         
-        // Скорость возврата к 0 (Гравитация), когда палец не двигается
-        GRAVITY_BODY: 0.6,
-        GRAVITY_HEAD: 0.5,
+        // Гравитация тоже чуть мягче
+        GRAVITY_BODY: 0.5,
+        GRAVITY_HEAD: 0.4,
 
-        // Насколько быстро затухает "энергия" движения (0.0 - 1.0)
         INPUT_DECAY: 0.85 
     },
     
     GOALS: {
-        BODY_STROKES: 8, // Сколько полных циклов (0-9-0) нужно для бонуса
+        BODY_STROKES: 8, 
         HEAD_TICKS: 26 
     },
 
@@ -90,12 +89,15 @@ let state = {
     
     phaseCounters: { headTicks: 0, bodyStrokes: 0 },
     
-    // Новые переменные движка
-    inputEnergy: 0, // 0.0 - 1.0 (есть ли движение пальцем)
+    inputEnergy: 0, 
     
     // Состояние анимации Ствола
-    bodyDir: 1,     // 1 = вверх (к 9 кадру), -1 = вниз (к 0 кадру)
-    hitTop: false,  // Флаг: достигли ли верха в этом цикле
+    bodyDir: 1,     
+    hitTop: false,
+    
+    // Для отслеживания смены кадров (чтобы начислять очки за "ступени")
+    lastBodyFrame: 0,
+    lastHeadFrame: 0,
 
     tapTarget: null,         
     tapNextSpawnTime: 0,
@@ -147,7 +149,6 @@ const els = {
     particles: getEl('particles-container')
 };
 
-// floatFrame - текущий точный кадр для плавности
 let sprites = {
     head:   { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.head, visible: false },
     body:   { frame: 0, floatFrame: 0, el: null, frames: CONFIG.FRAMES.body, visible: false },
@@ -314,7 +315,6 @@ function gameLoop() {
     if (!state.isPlaying) return;
     const now = Date.now();
     
-    // === ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ ===
     if (state.currentPhase === PHASES.BODY) {
         updateBodyPhysics();
     } else if (state.currentPhase === PHASES.HEAD) {
@@ -323,18 +323,16 @@ function gameLoop() {
     
     renderSprites();
     
-    // Затухание энергии ввода (если игрок перестал тереть)
+    // Затухание энергии
     state.inputEnergy *= CONFIG.ENGINE.INPUT_DECAY;
     if (state.inputEnergy < 0.05) state.inputEnergy = 0;
 
-    // --- ЛОГИКА ТАПА ---
     if (state.currentPhase === PHASES.TAP) {
         if (!state.tapTarget && now > state.tapNextSpawnTime) {
             spawnTapTarget();
         }
     }
     
-    // --- СМЕНА ФАЗ ---
     if (now >= state.phaseEndTime) {
         if (state.currentPhase === PHASES.WAIT) {
             pickNewPhase();
@@ -361,7 +359,7 @@ function gameLoop() {
     gameLoopId = requestAnimationFrame(gameLoop);
 }
 
-// === 7. АРКАДНАЯ ФИЗИКА (BODY & HEAD) ===
+// === 7. АРКАДНАЯ ФИЗИКА (RIBBED SCORING) ===
 
 function updateBodyPhysics() {
     const s = sprites.body;
@@ -369,42 +367,47 @@ function updateBodyPhysics() {
     
     s.visible = true;
     
-    // Есть энергия (игрок трет)?
     if (state.inputEnergy > 0.1) {
-        // Двигаем кадр вперед или назад в зависимости от направления
+        // Запоминаем текущий ЦЕЛЫЙ кадр до движения
+        const oldIntFrame = Math.floor(s.floatFrame);
+        
+        // Двигаем
         const speed = CONFIG.ENGINE.PLAY_SPEED_BODY;
         s.floatFrame += speed * state.bodyDir;
         
-        // --- ЛОГИКА PING-PONG (0 -> 9 -> 0) ---
+        // --- ЛОГИКА 9 СТУПЕНЕЙ (Очки за смену кадра) ---
+        // Если после движения мы перешли на новый целый кадр
+        const newIntFrame = Math.floor(s.floatFrame);
         
-        // Удар о ВЕРХ (9 кадр)
+        if (newIntFrame !== oldIntFrame && newIntFrame >= 0 && newIntFrame < s.frames) {
+            // Игнорируем скачок с 8 на 9 или обратно, чтобы не спамить в граничных точках
+            triggerFrameScore(CONFIG.SCORE.FRAME_STEP);
+        }
+
+        // --- ЛОГИКА PING-PONG (0 -> 9 -> 0) ---
         if (s.floatFrame >= s.frames - 1) {
-            s.floatFrame = s.frames - 1; // Limit
-            state.bodyDir = -1; // Разворот вниз
-            state.hitTop = true; // Запомнили, что коснулись верха
+            s.floatFrame = s.frames - 1; 
+            state.bodyDir = -1; // Вниз
+            state.hitTop = true; 
         }
         
-        // Удар о НИЗ (0 кадр)
         if (s.floatFrame <= 0) {
-            s.floatFrame = 0; // Limit
+            s.floatFrame = 0; 
             
             if (state.bodyDir === -1) {
-                // Если мы шли вниз и ударились о дно
-                state.bodyDir = 1; // Разворот вверх
+                state.bodyDir = 1; // Вверх
                 
-                // ПРОВЕРКА КОМБО: Если мы до этого были наверху (hitTop)
                 if (state.hitTop) {
-                    state.hitTop = false; // Сброс
-                    // УРА! Полный цикл завершен
+                    state.hitTop = false; 
                     state.phaseCounters.bodyStrokes++;
                     
-                    // Награда за движение
-                    triggerSuccessCommon(CONFIG.SCORE.BODY_RUB, 180, 320);
-                    if(Math.random() > 0.6) audioSystem.play('body');
+                    // БОНУС ЗА ЦИКЛ (большой)
+                    triggerBonus(CONFIG.SCORE.CYCLE_BONUS, "ДА!", '', 180, 200); 
+                    if(Math.random() > 0.5) audioSystem.play('body');
 
-                    // Награда за ИДЕАЛЬНУЮ серию
+                    // БОНУС ЗА ИДЕАЛ (очень большой)
                     if (state.phaseCounters.bodyStrokes >= CONFIG.GOALS.BODY_STROKES) {
-                        triggerBonus(CONFIG.SCORE.BODY_BONUS, "ИДЕАЛЬНАЯ ДРОЧКА!", 'text-perfect', 180, 320);
+                        triggerBonus(CONFIG.SCORE.PERFECT_BONUS, "ИДЕАЛЬНО!", 'text-perfect', 180, 320);
                         state.phaseCounters.bodyStrokes = 0; 
                     }
                 }
@@ -412,12 +415,11 @@ function updateBodyPhysics() {
         }
     } 
     else {
-        // ГРАВИТАЦИЯ: Если игрок не трет, шкурка падает на 0
+        // ГРАВИТАЦИЯ
         if (s.floatFrame > 0) {
             s.floatFrame -= CONFIG.ENGINE.GRAVITY_BODY;
             if (s.floatFrame < 0) s.floatFrame = 0;
-            // При падении сбрасываем логику комбо, чтобы не абузили
-            state.bodyDir = 1; // При следующем старте всегда вверх
+            state.bodyDir = 1; 
         }
     }
 }
@@ -429,28 +431,29 @@ function updateHeadPhysics() {
     s.visible = true;
     
     if (state.inputEnergy > 0.1) {
-        // Просто крутим вперед
+        const oldIntFrame = Math.floor(s.floatFrame);
+        
         s.floatFrame += CONFIG.ENGINE.PLAY_SPEED_HEAD;
         
-        // Зацикливаем 0-9
-        if (s.floatFrame >= s.frames) {
-            s.floatFrame = 0; // Seamless loop
-            
-            // За каждый полный оборот
-            state.phaseCounters.headTicks++;
-            triggerSuccessCommon(CONFIG.SCORE.HEAD_SPIN, 180, 150);
-            if(Math.random() > 0.6) audioSystem.play('head');
+        const newIntFrame = Math.floor(s.floatFrame);
+        if (newIntFrame !== oldIntFrame) {
+            triggerFrameScore(CONFIG.SCORE.FRAME_STEP);
+        }
 
-            if (state.phaseCounters.headTicks >= CONFIG.GOALS.HEAD_TICKS / 3) {
-                 // Упростил условие для динамики
+        if (s.floatFrame >= s.frames) {
+            s.floatFrame = 0; 
+            
+            state.phaseCounters.headTicks++;
+            triggerSuccessCommon(CONFIG.SCORE.CYCLE_BONUS / 2, 180, 150); // Половина от цикла тела
+            if(Math.random() > 0.7) audioSystem.play('head');
+
+            if (state.phaseCounters.headTicks >= CONFIG.GOALS.HEAD_TICKS / 2) {
                  triggerBonus(CONFIG.SCORE.BONUS_GENTLE, "НЕЖНО!", 'text-gentle', 180, 200);
                  state.phaseCounters.headTicks = 0;
             }
         }
     } 
     else {
-        // УПРУГОСТЬ: Возврат к 0
-        // Ищем кратчайший путь к 0, но для простоты просто отматываем назад
         if (s.floatFrame > 0.1) {
             s.floatFrame -= CONFIG.ENGINE.GRAVITY_HEAD;
             if (s.floatFrame < 0) s.floatFrame = 0;
@@ -460,13 +463,11 @@ function updateHeadPhysics() {
     }
 }
 
-
-// === 8. INPUT HANDLING (ЭНЕРГИЯ) ===
+// === 8. INPUT HANDLING ===
 
 function spawnTapTarget() {
     const r = Math.random();
     let type = 'left';
-    
     if (r > 0.7) type = 'double';     
     else if (r > 0.35) type = 'right'; 
 
@@ -496,10 +497,7 @@ function renderSprites() {
             if (s.el.style.opacity !== '1') s.el.style.opacity = 1;
             anyActive = true;
 
-            // Просто отображаем то, что насчитал физический движок
             let displayFrame = Math.floor(s.floatFrame);
-            
-            // Safety
             if(displayFrame < 0) displayFrame = 0;
             if(displayFrame >= s.frames) displayFrame = s.frames - 1;
             
@@ -526,7 +524,7 @@ function enterWaitPhase() {
     state.currentPhase = PHASES.WAIT;
     state.phaseEndTime = Date.now() + CONFIG.PAUSE_TIME;
     state.phaseTotalTime = CONFIG.PAUSE_TIME;
-    state.inputEnergy = 0; // Сброс энергии
+    state.inputEnergy = 0; 
     
     Object.values(els.icons).forEach(icon => { if(icon) icon.classList.add('hidden'); });
     sprites.head.visible = false;
@@ -551,7 +549,6 @@ function pickNewPhase() {
         els.icons.tap1.classList.add('hidden');
         els.icons.tap2.classList.add('hidden');
     } else if (next === PHASES.BODY) {
-        // Сброс физики тела
         sprites.body.floatFrame = 0;
         state.bodyDir = 1;
         state.hitTop = false;
@@ -575,22 +572,18 @@ function pickNewPhase() {
     if(els.ui.phaseText) els.ui.phaseText.textContent = PHASE_TEXTS[next];
 }
 
-// === 9. INPUT HANDLING (УПРОЩЕННЫЙ) ===
+// === 9. INPUT HANDLING ===
 
-// Блокируем скролл
 document.addEventListener('touchmove', function(e) { 
     if(e.target.closest('#game-container')) e.preventDefault(); 
 }, { passive: false });
 
-// Слушаем ввод для всех фаз
 if(els.zones.head) els.zones.head.addEventListener('touchmove', (e) => handleEnergyInput(e, PHASES.HEAD));
 if(els.zones.body) els.zones.body.addEventListener('touchmove', (e) => handleEnergyInput(e, PHASES.BODY));
 
-// Для тапов оставляем клики
 if(els.zones.tapLeft) els.zones.tapLeft.addEventListener('touchstart', (e) => handleTapInput(e, PHASES.TAP));
 if(els.zones.tapRight) els.zones.tapRight.addEventListener('touchstart', (e) => handleTapInput(e, PHASES.TAP));
 
-// Штрафы за не ту зону (клики)
 if(els.zones.head) els.zones.head.addEventListener('touchstart', (e) => {
     if (state.currentPhase !== PHASES.HEAD) checkPenaltyTap(e, PHASES.HEAD);
 });
@@ -599,21 +592,13 @@ if(els.zones.body) els.zones.body.addEventListener('touchstart', (e) => {
 });
 
 
-// Функция для накачки энергии (просто от движения)
 function handleEnergyInput(e, zoneName) {
     if (!state.isPlaying || state.currentPhase === PHASES.WAIT) return;
     
-    // Если зона совпадает
     if (state.currentPhase === zoneName) {
-        // Просто ставим энергию на максимум.
-        // Пока игрок двигает пальцем (события touchmove летят) - энергия полная.
-        // Как только перестанет - она начнет падать в gameLoop.
         state.inputEnergy = 1.0; 
         state.lastActionTime = Date.now();
-    } else {
-        // Если трет не там - не наказываем сразу штрафом, но энергия не идет
-        // (Штраф только за Тап/Клик, чтобы не бесить случайными задеваниями)
-    }
+    } 
 }
 
 function handleTapInput(e, zoneName) {
@@ -626,7 +611,6 @@ function handleTapInput(e, zoneName) {
     }
     state.lastActionTime = Date.now();
 
-    // Тап логика
     const side = e.currentTarget.id === 'zone-tap-left' ? 'left' : 'right';
     processTapNew(touch, side); 
 }
@@ -715,6 +699,18 @@ function applyPenalty(touch, severity) {
         tg.HapticFeedback.notificationOccurred('error');
         shakeScreen();
     }
+}
+
+// Специальная функция для мелких очков (Ступеней)
+function triggerFrameScore(points) {
+    // Без вибрации и без комбо, чтобы не перегружать
+    state.score += points;
+    updateScoreUI();
+    
+    // Спавним мелкий текст в рандомном месте зоны
+    const rx = 140 + Math.random() * 80;
+    const ry = 300 + Math.random() * 100;
+    spawnFloatingText(`+${points}`, rx, ry, 'text-small');
 }
 
 function triggerSuccessCommon(points, x, y) {
